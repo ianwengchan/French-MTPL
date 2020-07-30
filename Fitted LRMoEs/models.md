@@ -1,6 +1,3 @@
-TO MODIFY MODEL DESCRIPTIONS
-
-
 3 model categories: for frequency (freq), severity (sev) and aggregate.
 
 **For frequency:**
