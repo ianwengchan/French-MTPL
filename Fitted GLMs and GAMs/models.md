@@ -23,4 +23,4 @@ Used log as link function unless otherwise stated or pre-set by package.
 * total.gxm1: Tweedie, 1<p<2
 * total.gxm2: zero-inflated/adjusted Gamma
 
-*total.gam2 is too large, see [Google Drive](https://drive.google.com/drive/folders/1Uy8WEAMM0RFpepozpGQpnghzBiGrAoSH?usp=sharing) instead.*
+*total.gam2 is too large, see [Google Drive](https://drive.google.com/drive/folders/1o6HOeQl3vFWpX-5GNH9tvolNIKLtdbEG?usp=sharing) instead.*
