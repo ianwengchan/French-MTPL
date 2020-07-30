@@ -12,7 +12,8 @@ Used log as link function unless otherwise stated or pre-set by package.
 * freq.gxm2: Negative Binomial
 * freq.zigxm1: zero-inflated Poisson
 * freq.zigxm2: zero-inflated Negative Binomial
-*freq.zigam2 is unusable as algorithm did not converge.
+
+*freq.zigam2 is unusable as algorithm did not converge.*
 
 **For severity:**
 * sev.gxm1: Gamma
