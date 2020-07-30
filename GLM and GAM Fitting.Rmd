@@ -1,0 +1,368 @@
+---
+title: "GLM and GAM Fitting"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# GLM packages
+library(glmmTMB)
+library(boot)
+library(tweedie)
+
+# GAM packages
+library(mgcv)
+library(gamlss)
+library(boot)
+library(VGAM)
+
+# French Motor Third-Party Liability datasets
+library(CASdatasets)
+data(freMTPLfreq, freMTPLsev)
+```
+
+# Introduction/Recap
+
+We work with the French Motor Third-Party Liability datasets "freMTPLfreq" and "freMTPLsev".
+
+"freMTPLfreq" contains 10 columns:
+1. PolicyID: The unique identifier policy ID (used to link with the claims dataset).
+2. ClaimNb: Number of claims during the exposure period.
+3. Exposure: The period of exposure for a policy, in years.
+4. Power: The power of the car (ordered categorical).
+5. CarAge: The vehicle age, in years.
+6. DriverAge The driver age, in years.
+7. Brand: The car brand, divided into 7 groups.
+8. Gas: The car gas, Diesel or regular.
+9. Region: The policy region in France (based on the 1970-2015 classiﬁcation).
+10. Density: The density of inhabitants (number of inhabitants per km2) in the city the policyholder lives in.
+
+"freMTPLsev" contains 2 columns:
+1. PolicyID
+2. ClaimAmount: The cost of the claim.
+
+For simplicity, we neglect information on "Exposure" and "Density".  The removal of the former sets the exposure to a default of 1.  Justifications:
+1. Since majority of the policies has exposure period within a year with 1 being the mode, we expect the effect of such removal to be moderate.
+2. We will neglect both information throughout the whole project, putting all models on a level playing field.
+
+We will also give a few definitions before-hand.
+1. Claim: the request made by a policyholder to the insurer to compensate for a loss covered by the insurance.
+2. Claim amount: the amount of money that the insurer must pay.
+3. Claim frequency: the number of claims per policy.
+4. Claim severity: the size/amount per claim.
+
+
+
+
+# Task Description
+
+This session of the project looks at claim modelling using the Generalized Linear Models (GLMs) and Generalized Additive Models (GAMs).  GLMs are generalization of the Linear Regression Models, in the sense that they allow the response variables to have error distributions other than Gaussian.  On the other hand, GAMs are GLMs in which the linear predictor depends on smooth functions of predictor variables.
+
+Our goal is to predict the expected value (or mean) of the total claim amount per policy, i.e. the total costs of all claims incurred by each policyholder.
+
+There are two common modelling approaches:
+1. Model the claim frequency and severity separately, then multiply the predictions of both to produce the total claim amount.
+2. Model the total claim amount per policy directly.
+
+We will illustrate both approaches.
+
+We will utilize the package "glmmTMB", "mgcv" and "gamlss".  "glmmTMB" is made for fitting Generalized Linear Mixed Models (GLMMs) but can fit GLMs and even supports a wider range of distributions.  "mgcv" can fit Generalized Additive Mixed Models (GAMMs) while "gamlss" is made for fitting GAMs for location, scale and shape.  We will use the latter two to fit GAMs.
+
+The difference between GLMs and GAMs is the introduction of a (cubic) spline to the continuous variables CarAge and DriverAge, allowing a more flexible relationship between the response and these variables.  In "mgcv" it is represented as s(..., bs="cr") and for GAMs, it is represented as cs(...).
+
+Currently the LRMoE model does not support random effects yet.  For this project we will focus on GLMs and GAMs only.
+
+
+
+
+# Frequency Modelling
+
+```{r Frequency dataframe}
+df.freq = freMTPLfreq[,-which(names(freMTPLfreq) %in% c("Exposure", "Density"))]
+
+# hist(df.freq$ClaimNb)
+# summary(df.freq$ClaimNb)
+```
+
+We first investigate the properties of claim frequency.
+
+ClaimNb is a non-negative integer, with 0 and 4 being the minimum and maximum in the dataset respectively.  It is also highly concentrated at 0.
+
+We start off by fitting Poisson and Negative Binomial GLMs and GAMs.
+
+```{r freq.glm1 - Poisson}
+# freq.glm1 = glmmTMB(ClaimNb ~ CarAge + DriverAge + Power + Brand + Gas + Region, 
+#                     data = df.freq, family = poisson())
+# summary(freq.glm1)
+# save(freq.glm1, file = "freq.glm1.Rda")
+```
+
+```{r freq.glm2 - NegBin}
+# freq.glm2 = glmmTMB(ClaimNb ~ CarAge + DriverAge + Power + Brand + Gas + Region, 
+#                     data = df.freq, family = nbinom2())
+# summary(freq.glm2)
+# save(freq.glm2, file = "freq.glm2.Rda")
+```
+
+```{r freq.gam1 - Poisson}
+# freq.gam1 = mgcv::gam(ClaimNb ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region,
+#                       data = df.freq, family = poisson())
+# summary(freq.gam1)
+# save(freq.gam1, file = "freq.gam1.Rda")
+```
+
+```{r freq.gam2 - NegBin}
+# freq.gam2 = mgcv::gam(ClaimNb ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region, 
+#                       data = df.freq, family = nb())
+# summary(freq.gam2)
+# save(freq.gam2, file = "freq.gam2.Rda")
+```
+
+Negative Binomial performs better than Poisson.  However as we have observed that ClaimNb is highly concentrated at 0, it may be beneficial to consider zero-inflated Poisson and Negative Binomial.
+
+```{r freq.ziglm1 - Poisson}
+# freq.ziglm1 = glmmTMB(ClaimNb ~ CarAge + DriverAge + Power + Brand + Gas + Region, 
+#                       ziformula = ~., data = df.freq, family = poisson())
+# summary(freq.ziglm1)
+# save(freq.ziglm1, file = "freq.ziglm1.Rda")
+```
+
+```{r freq.ziglm2 - NegBin}
+# freq.ziglm2 = glmmTMB(ClaimNb ~ CarAge + DriverAge + Power + Brand + Gas + Region, 
+#                       ziformula = ~., data = df.freq, family = nbinom2())
+# summary(freq.ziglm2)
+# save(freq.ziglm2, file = "freq.ziglm2.Rda")
+```
+
+```{r freq.zigam1 - Poisson}
+# freq.zigam1 = mgcv::gam(list(ClaimNb ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region,
+#                              ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region),
+#                         data = df.freq, family = ziplss())
+# summary(freq.zigam1)
+# save(freq.zigam1, file = "freq.zigam1.Rda")
+```
+
+Unable to fit a zero-inflated Negative Binomial GAM.
+1. mgcv: zero-inflated Negative Binomial GAM not supported.
+2. gamlss: algorithm does not converge.
+
+```{r freq.zigam2 - NegBin}
+# # Tried but did not converge
+# freq.zigam2 = gamlss(ClaimNb ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region,
+#                      sigma.formula = cs(CarAge) + cs(DriverAge)) + Power + Brand + Gas + Region,
+#                      nu.formula = ~1, data = df.freq, family = ZINBI())
+```
+
+By introducing zero-inflation, the performance improves.  However, most of the covariates become insignificant.
+
+Note: Zero-inflated frequency GLMs/GAMs are theoretically more flexible than LRMoE since both the zero-inflation and conditional mean depend on the covariates; for LRMoE the grouping depends on the covariates but the conditional means do not (at least not directly dependent).
+
+## Frequency Chi-square
+
+```{r parameters for chi-square}
+mu.freq.glm1 = predict(freq.glm1, df.freq, type="response")
+
+mu.freq.glm2 = predict(freq.glm2, df.freq, type="response")
+disp.freq.glm2 = predict(freq.glm2, df.freq, type="disp")
+
+# probability of zero
+prob.freq.ziglm1 = predict(freq.ziglm1, df.freq, type="zprob")
+mu.freq.ziglm1 = predict(freq.ziglm1, df.freq, type="conditional")
+
+# probability of zero
+prob.freq.ziglm2 = predict(freq.ziglm2, df.freq, type="zprob")
+mu.freq.ziglm2 = predict(freq.ziglm2, df.freq, type="conditional")
+disp.freq.ziglm2 = predict(freq.ziglm2, df.freq, type="disp")
+
+
+mu.freq.gam1 = predict(freq.gam1, df.freq, type="response")
+
+mu.freq.gam2 = predict(freq.gam2, df.freq, type="response")
+disp.freq.gam2 = freq.gam2$family$getTheta(TRUE)
+
+mu.freq.zigam1 = exp(predict(freq.zigam1, df.freq, type="link")[,1])
+# probability of existence
+prob.freq.zigam1 = predict(freq.zigam1, df.freq, type="response")/mu.freq.zigam1
+
+# NA for zi-NegBin GAM
+```
+
+We now move on to severity modelling.
+
+
+
+
+# Severity Modelling
+
+```{r Severity dataframe}
+# Match two datasets by PolicyID.
+df.sev = merge(freMTPLsev, freMTPLfreq, by = "PolicyID", all = FALSE)
+df.sev = df.sev[,-which(names(df.sev) %in% c("Exposure", "Density"))]
+
+# hist(subset(df.sev, df.sev$ClaimAmount <= 20000)$ClaimAmount, breaks=100, main="Histogram of ClaimAmount (subset)", xlab="ClaimAmount less than 20000")
+# summary(df.sev$ClaimAmount)
+```
+
+We first investigate the properties of claim severity.
+
+ClaimAmount ranges from 2 to 2036833, with a mean of 2130.  We can see from the (subset) histogram that the empirical distribution is actually multimodal.
+
+We will fit Gamma and Lognormal, both with log as link function to the data.
+
+```{r sev.glm1 - Gamma}
+# sev.glm1 = glmmTMB(ClaimAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region,
+#                    data = df.sev, family = Gamma(link="log"))
+# summary(sev.glm1)
+# save(sev.glm1, file = "sev.glm1.Rda")
+
+# # Alternative for Gamma GLM, checked OK
+# test.glm1 = gamlss(ClaimAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region, 
+#                    data = df.sev, family = GA())
+# summary(test.glm1)
+```
+
+```{r sev.glm2 - Lognormal}
+# # OK to use gamlss, checked using Gamma GLM
+# sev.glm2 = gamlss(ClaimAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region, 
+#                   data = df.sev, family = LOGNO())
+# summary(sev.glm2)
+# save(sev.glm2, file = "sev.glm2.Rda")
+```
+
+```{r sev.gam1 - Gamma}
+# sev.gam1 = gamlss(ClaimAmount ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region, 
+#                   data = df.sev, family = GA())
+# summary(sev.gam1)
+# save(sev.gam1, file = "sev.gam1.Rda")
+
+# # Equivalent to the following:
+# test1 = mgcv::gam(ClaimAmount ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region, 
+#                   data = df.sev, family = Gamma(link="log"))
+# summary(test1)
+# test1.mu = predict(test1, df.sev, type="response")
+```
+
+```{r sev.gam2 - Lognormal}
+# sev.gam2 = gamlss(ClaimAmount ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region, 
+#                   data = df.sev, family = LOGNO())
+# summary(sev.gam2)
+# save(sev.gam2, file = "sev.gam2.Rda")
+```
+
+Similar performance between the two distributions.
+
+## Severity Chi-square
+
+```{r parameters for chi-square}
+mu.sev.glm1 = predict(sev.glm1, df.sev, type="response")
+shape.sev.glm1 = (1/predict(sev.glm1, df.sev, type="disp"))^2
+# sum(pgamma(2036833, shape=shape.sev.glm1, scale=mu.sev.glm1/shape.sev.glm1))
+
+mu.sev.glm2 = predictAll(sev.glm2, newdata = df.sev, type="response")[["mu"]]
+sigma.sev.glm2 = predictAll(sev.glm2, newdata = df.sev, type="response")[["sigma"]]
+# sum(pLOGNO(2036833, mu=mu.sev.glm2, sigma=sigma.sev.glm2))
+
+
+mu.sev.gam1 = predictAll(sev.gam1, newdata = df.sev, type="response")[["mu"]]
+sigma.sev.gam1 = predictAll(sev.gam1, newdata = df.sev, type="response")[["sigma"]]
+# sum(pGA(2036833, mu=mu.sev.gam1, sigma=sigma.sev.gam1))
+
+mu.sev.gam2 = predictAll(sev.gam2, newdata = df.sev, type="response")[["mu"]]
+sigma.sev.gam2 = predictAll(sev.gam2, newdata = df.sev, type="response")[["sigma"]]
+# sum(pLOGNO(2036833, mu=mu.sev.gam2, sigma=sigma.sev.gam2))
+```
+
+
+
+
+# Total Claim Amount Modelling
+
+Alternatively, we can model the total claim amount directly.  Candidate distributions include:
+1. Tweedie distribution with 1<p<2, which corresponds to a compound Poisson-Gamma.
+2. Zero-inflated (or zero-adjusted) Gamma Distribution (with log link).
+
+```{r Aggregate dataframe}
+# Aggregate claim amounts
+sev.aggre = aggregate(freMTPLsev$ClaimAmount, by = list(PolicyID = freMTPLsev$PolicyID), FUN = "sum")
+colnames(sev.aggre)[2] = "ClaimAmount"
+
+# Match two datasets by PolicyID. NA values correspond to no claims.
+df.all = merge(freMTPLfreq, sev.aggre, by = "PolicyID", all = TRUE)
+df.all$ClaimAmount[is.na(df.all$ClaimAmount)] = 0
+
+# Drop covariates "Exposure" and "Density".
+df.all = df.all[,-which(names(df.all) %in% c("Exposure", "Density"))]
+
+# hist(df.all$ClaimAmount)
+# hist(subset(df.all, df.all$ClaimAmount <= 5000)$ClaimAmount, breaks=100, main="Histogram of ClaimAmount (subset)", xlab="ClaimAmount less than 20000")
+# summary(df.all$ClaimAmount)
+```
+
+Total ClaimAmount ranges from 0 to 2036833, with a mean of 83.4.  There is a huge number of zeros.
+
+```{r total.glm1 - Tweedie}
+# total.glm1 = glmmTMB(ClaimAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region, data = df.all, family=tweedie())
+# summary(total.glm1)
+# save(total.glm1, file = "total.glm1.Rda")
+```
+
+```{r total.glm2 - ziGamma}
+# total.glm2 = glmmTMB(ClaimAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region, ziformula = ~., data = df.all, family=ziGamma(link="log"))
+# summary(total.glm2)
+# save(total.glm2, file = "total.glm2.Rda")
+```
+
+```{r total.gam1 - Tweedie}
+# total.gam1 = mgcv::gam(ClaimAmount ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region, data = df.all, family=tw())
+# summary(total.gam1)
+# save(total.gam1, file = "total.gam1.Rda")
+```
+
+```{r total.gam2 - ziGamma}
+# total.gam2 = gamlss(ClaimAmount ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region,
+#                     nu.formula = ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region,
+#                     data = df.all, family = ZAGA())
+# summary(total.gam2)
+# save(total.gam2, file = "total.gam2.Rda")
+```
+
+Note: For zero-inflated/adjusted Gamma, both the conditional mean and probability of zero depend on the covariates.
+
+A zero-inflated Gamma seems to outperform the Tweedie.
+
+```{r parameters for chi-square}
+mu.total.glm1 = predict(total.glm1, df.all, type="response")
+phi.total.glm1 = sigma(total.glm1)
+power.total.glm1 = glmmTMB:::.tweedie_power(total.glm1)
+# sum(ptweedie(rep(pt, 413169), mu = mu.total.glm1, phi = phi.total.glm1, power = power.total.glm1))
+
+# probability of zero
+prob.total.glm2 = predict(total.glm2, df.all, type="zprob")
+mu.total.glm2 = exp(predict(total.glm2, df.all, type="link"))
+shape.total.glm2 = (1/predict(total.glm2, df.all, type="disp"))^2
+# sum(prob.total.glm2 + 
+#       (1-prob.total.glm2)*pgamma(pt, shape = shape.total.glm2, scale = mu.total.glm2/shape.total.glm2))
+
+
+mu.total.gam1 = predict(total.gam1, df.all, type="response")
+power.total.gam1 = total.gam1$family$getTheta(TRUE)
+phi.total.gam1 = summary(total.gam1)$dispersion
+# sum(ptweedie(rep(pt, 413169), mu = mu.total.gam1, power = power.total.gam1, phi = phi.total.gam1))
+
+mu.total.gam2 = predictAll(total.gam2, df.all, type="response")[["mu"]]
+sigma.total.gam2 = predictAll(total.gam2, df.all, type="response")[["sigma"]]
+nu.total.gam2 = predictAll(total.gam2, df.all, type="response")[["nu"]]
+# sum(pZAGA(rep(40000,413169), mu = mu.total.gam2, sigma = sigma.total.gam2, nu = nu.total.gam2))
+```
+
+This concludes the fitting procedure of GLMs and GAMs.
+
+
+# Sidenote
+
+In contrast to zero-inﬂated models, hurdle models treat zero-count and nonzero outcomes as two completely separate categories, rather than treating the zero-count outcomes as a mixture of structural and sampling zeros. 
+
+1. A zero-inflated Poisson is different from a hurdle Poisson: for the former, zeros can come from the probability of zero, or zero from the Poisson, whilst a hurdle Poisson is the mixture of a point mass at zero and a truncated Poisson.
+
+2. A zero-inflated Gamma is effectively a hurdle Gamma: it is the mixture of a point mass at zero and a Gamma (Gamma has domain x>0).
