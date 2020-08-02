@@ -92,11 +92,11 @@ Note: Severity dataframe is smaller (have fewer observations) than the other two
 ```{r Dataframes}
 # Aggregate claim amounts
 sev.aggre = aggregate(freMTPLsev$ClaimAmount, by = list(PolicyID = freMTPLsev$PolicyID), FUN = "sum")
-colnames(sev.aggre)[2] = "ClaimAmount"
+colnames(sev.aggre)[2] = "AggreAmount"
 
 # Match two datasets by PolicyID. NA values correspond to no claims.
 df.all = merge(freMTPLfreq, sev.aggre, by = "PolicyID", all = TRUE)
-df.all$ClaimAmount[is.na(df.all$ClaimAmount)] = 0
+df.all$AggreAmount[is.na(df.all$AggreAmount)] = 0
 df.all = df.all[,-which(names(df.all) %in% c("Exposure", "Density"))]
 
 # Frequency dataframe
@@ -106,10 +106,15 @@ df.freq = freMTPLfreq[,-which(names(freMTPLfreq) %in% c("Exposure", "Density"))]
 df.sev = merge(freMTPLsev, freMTPLfreq, by = "PolicyID", all = FALSE)
 df.sev = df.sev[,-which(names(df.sev) %in% c("Exposure", "Density"))]
 
-jpeg(file="exploratory1.jpeg", width=600, height=400)
-hist(log(df.all$ClaimAmount), breaks=500,
-     xlab="log(Claim Amount)", main="Histogram of log(Claim Amount)")
-dev.off()
+# png(file="exploratory1.png", width=600, height=400)
+# hist(log(df.sev$ClaimAmount), breaks=500,
+#      xlab="log(Claim Amount)", main="Histogram of log(Claim Amount)")
+# dev.off()
+# 
+# png(file="exploratory2.png", width=600, height=400)
+# hist(log(df.all$ClaimAmount), breaks=500,
+#      xlab="log(Aggregate Amount)", main="Histogram of log(Aggregate Amount)")
+# dev.off()
 ```
 
 We can see that aggregate claim amounts seem to be multi-modal, supporting the use of LRMoE.
@@ -132,8 +137,8 @@ Y.sev = matrix(c(rep(0, nrow(df.sev)), # = tl
              ), ncol = 4, byrow = FALSE)
 
 Y = matrix(c(rep(0, sample.size), # = tl
-             df.all$ClaimAmount, # = yl
-             df.all$ClaimAmount, # = yu
+             df.all$AggreAmount, # = yl
+             df.all$AggreAmount, # = yu
              rep(Inf, sample.size) # = tu
              ), ncol = 4, byrow = FALSE)
 ```
@@ -212,7 +217,7 @@ load("Y.freq.Rda")
 df.all.norm = df.all[,-which(names(df.all) %in% c("PolicyID", "ClaimNb"))]
 df.all.norm$CarAge = (df.all$CarAge - mean(df.all$CarAge))/sd(df.all$CarAge)
 df.all.norm$DriverAge = (df.all$DriverAge - mean(df.all$DriverAge))/sd(df.all$DriverAge)
-df.all.norm$ClaimAmount = (df.all$ClaimAmount - mean(df.all$ClaimAmount))/sd(df.all$ClaimAmount)
+df.all.norm$AggreAmount = (df.all$AggreAmount - mean(df.all$AggreAmount))/sd(df.all$AggreAmount)
 
 df.freq.norm = df.freq[,-which(names(df.freq) %in% c("PolicyID", "ClaimAmount"))]
 df.freq.norm$CarAge = (df.freq$CarAge - mean(df.freq$CarAge))/sd(df.freq$CarAge)
