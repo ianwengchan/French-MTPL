@@ -108,7 +108,7 @@ df.sev = df.sev[,-which(names(df.sev) %in% c("Exposure", "Density"))]
 
 jpeg(file="exploratory1.jpeg", width=600, height=400)
 hist(log(df.all$ClaimAmount), breaks=500,
-     xlab="log(Claim Amount)", main="History of log(Claim Amount)")
+     xlab="log(Claim Amount)", main="Histogram of log(Claim Amount)")
 dev.off()
 ```
 
