@@ -69,7 +69,7 @@ We will illustrate both approaches.
 
 We will utilize the package "glmmTMB", "mgcv" and "gamlss".  "glmmTMB" is made for fitting Generalized Linear Mixed Models (GLMMs) but can fit GLMs and even supports a wider range of distributions.  "mgcv" can fit Generalized Additive Mixed Models (GAMMs) while "gamlss" is made for fitting GAMs for location, scale and shape.  We will use the latter two to fit GAMs.
 
-The difference between GLMs and GAMs is the introduction of a (cubic) spline to the continuous variables CarAge and DriverAge, allowing a more flexible relationship between the response and these variables.  In "mgcv" it is represented as s(..., bs="cr") and for GAMs, it is represented as cs(...).
+The difference between GLMs and GAMs is the introduction of (cubic) splines to the continuous variables CarAge and DriverAge, allowing a more flexible relationship between the response and these variables.  In "mgcv" it is represented as s(..., bs="cr") and for GAMs, it is represented as cs(...).
 
 Currently the LRMoE model does not support random effects yet.  For this project we will focus on GLMs and GAMs only.
 
@@ -285,11 +285,11 @@ Alternatively, we can model the total claim amount directly.  Candidate distribu
 ```{r Aggregate dataframe}
 # Aggregate claim amounts
 sev.aggre = aggregate(freMTPLsev$ClaimAmount, by = list(PolicyID = freMTPLsev$PolicyID), FUN = "sum")
-colnames(sev.aggre)[2] = "ClaimAmount"
+colnames(sev.aggre)[2] = "AggreAmount"
 
 # Match two datasets by PolicyID. NA values correspond to no claims.
 df.all = merge(freMTPLfreq, sev.aggre, by = "PolicyID", all = TRUE)
-df.all$ClaimAmount[is.na(df.all$ClaimAmount)] = 0
+df.all$AggreAmount[is.na(df.all$AggreAmount)] = 0
 
 # Drop covariates "Exposure" and "Density".
 df.all = df.all[,-which(names(df.all) %in% c("Exposure", "Density"))]
@@ -302,25 +302,25 @@ df.all = df.all[,-which(names(df.all) %in% c("Exposure", "Density"))]
 Total ClaimAmount ranges from 0 to 2036833, with a mean of 83.4.  There is a huge number of zeros.
 
 ```{r total.glm1 - Tweedie}
-# total.glm1 = glmmTMB(ClaimAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region, data = df.all, family=tweedie())
+# total.glm1 = glmmTMB(AggreAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region, data = df.all, family=tweedie())
 # summary(total.glm1)
 # save(total.glm1, file = "total.glm1.Rda")
 ```
 
 ```{r total.glm2 - ziGamma}
-# total.glm2 = glmmTMB(ClaimAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region, ziformula = ~., data = df.all, family=ziGamma(link="log"))
+# total.glm2 = glmmTMB(AggreAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region, ziformula = ~., data = df.all, family=ziGamma(link="log"))
 # summary(total.glm2)
 # save(total.glm2, file = "total.glm2.Rda")
 ```
 
 ```{r total.gam1 - Tweedie}
-# total.gam1 = mgcv::gam(ClaimAmount ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region, data = df.all, family=tw())
+# total.gam1 = mgcv::gam(AggreAmount ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region, data = df.all, family=tw())
 # summary(total.gam1)
 # save(total.gam1, file = "total.gam1.Rda")
 ```
 
 ```{r total.gam2 - ziGamma}
-# total.gam2 = gamlss(ClaimAmount ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region,
+# total.gam2 = gamlss(AggreAmount ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region,
 #                     nu.formula = ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region,
 #                     data = df.all, family = ZAGA())
 # summary(total.gam2)
