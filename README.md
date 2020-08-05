@@ -5,7 +5,8 @@ This project evaluates the performance of Generalized Linear Models (GLMs), Gene
 ## Currently existing:
 
 * Added fitted GLMs and GAMs with corresponding Rmarkdown.
-
-## Updated July 30, 2020
-
 * Added fitted LRMoEs with corresponding Rmarkdown and init analysis.
+
+## Updated Aug 5, 2020
+
+* Added fitted Hurdle Poisson LRMoEs.
