@@ -1,0 +1,585 @@
+---
+title: "Frequency Hurdle LRMoE Fitting"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(doParallel)
+library(parallel)
+library(actuar)
+
+# LRMoE package
+library(devtools)
+install_github("sparktseung/LRMoE")
+library(LRMoE)
+
+# install_github("sparktseung/LRMoECPNew", auth_token = "5922c38181c58dac4e901b68051f86da78f53def")
+library(LRMoECPNew)
+
+# French Motor Third-Party Liability datasets
+# install.packages("CASdatasets", repos = "http://cas.uqam.ca/pub/R/", type="source", dependencies = TRUE)
+library(CASdatasets)
+data(freMTPLfreq, freMTPLsev)
+```
+
+
+
+
+# Data Processing
+
+Drop covariates "Exposure" and "Density" for simplicity.
+
+Produce a indicator for zero claims and group non-zero claim data.
+
+```{r Dataframes}
+df.freq = freMTPLfreq[,-which(names(freMTPLfreq) %in% c("Exposure", "Density"))]
+df.freq.count = subset(df.freq, df.freq$ClaimNb>0)
+
+# Indicate whether ClaimNb is zero, 1 means ClaimNb == 0, 0 means ClaimNb > 0
+df.freq$zero = ifelse(df.all$ClaimNb == 0, 1, 0)
+```
+
+```{r Y matrices building}
+# Build matrix Y (claims)
+sample.size = nrow(df.all)
+
+# Indicator for zero claim
+Y.freq.prob = matrix(c(rep(0, sample.size), # = tl
+              df.freq$zero, # = yl
+              df.freq$zero, # = yu
+              rep(Inf, sample.size) # = tu
+              ), ncol = 4, byrow = FALSE)
+
+# Non-zero claim data, truncated at 1
+Y.freq.count = matrix(c(rep(1, nrow(df.freq.count)), # = tl
+              df.freq.count$ClaimNb, # = yl
+              df.freq.count$ClaimNb, # = yu
+              rep(Inf, nrow(df.freq.count)) # = tu
+              ), ncol = 4, byrow = FALSE)
+```
+
+```{r X matrices building}
+# Build matrix X (covariates)
+# For all (and indicator)
+X.continuous = cbind(df.all$CarAge, df.all$DriverAge)
+X.power = model.matrix(~df.all$Power, data = df.all) # Default is 'd'
+X.brand = model.matrix(~df.all$Brand, data = df.all) # Default is 'Fiat'
+X.gas = model.matrix(~df.all$Gas, data = df.all) # Default is 'Diesel'
+X.region = model.matrix(~df.all$Region, data = df.all) # Default is 'Aquitaine'
+X = matrix(cbind(rep(1, sample.size), # Intercept
+                 X.continuous, X.power[,-1], X.brand[,-1], X.gas[,-1], X.region[,-1]), 
+           nrow = sample.size, byrow = FALSE)
+
+colnames(X) = c("Intercept", "CarAge", "DriverAge",
+                "Powere", "Powerf", "Powerg", "Powerh", "Poweri", "Powerj", 
+                "Powerk", "Powerl", "Powerm", "Powern", "Powero",
+                "BrandJK", "BrandMCB", "BrandOGF", "BrandOther", "BrandRNC", "BrandVAS",
+                "GasRegular",
+                "RegionBN", "RegionB", "RegionC", "RegionHN", "RegionIF",
+                "RegionL", "RegionNPC", "RegionPL", "RegionPC")
+
+# For non-zero claim
+X.count.continuous = cbind(df.freq.count$CarAge, df.freq.count$DriverAge)
+X.count.power = model.matrix(~df.freq.count$Power, data = df.freq.count) # Default is 'd'
+X.count.brand = model.matrix(~df.freq.count$Brand, data = df.freq.count) # Default is 'Fiat'
+X.count.gas = model.matrix(~df.freq.count$Gas, data = df.freq.count) # Default is 'Diesel'
+X.count.region = model.matrix(~df.freq.count$Region, data = df.freq.count) # Default is 'Aquitaine'
+X.count = matrix(cbind(rep(1, nrow(df.freq.count)), # Intercept
+                 X.count.continuous, X.count.power[,-1], X.count.brand[,-1],
+                 X.count.gas[,-1], X.count.region[,-1]), 
+           nrow = nrow(df.freq.count), byrow = FALSE)
+
+colnames(X.count) = c("Intercept", "CarAge", "DriverAge",
+                "Powere", "Powerf", "Powerg", "Powerh", "Poweri", "Powerj", 
+                "Powerk", "Powerl", "Powerm", "Powern", "Powero",
+                "BrandJK", "BrandMCB", "BrandOGF", "BrandOther", "BrandRNC", "BrandVAS",
+                "GasRegular",
+                "RegionBN", "RegionB", "RegionC", "RegionHN", "RegionIF",
+                "RegionL", "RegionNPC", "RegionPL", "RegionPC")
+```
+
+Intercept is 1.
+
+Power: default is "d".
+
+Brand: default is "Fiat"; JK is "Japanese (except Nissan) or Korean"; MCB is "Mercedes, Chrysler or BMW"; OGF is "Opel, General Motors or Ford"; Other is "other"; RNC is "Renault, Nissan or Citroen"; VAS is "Volkswagen, Audi, Skoda or Seat".
+
+GasRegular: default is "Diesel", the other is "Regular".
+
+Region: default is "Aquitaine"; BN is "Basse-Normandie"; B is "Bretagne"; C is "Centre"; HN is "Haute-Normandie"; IF is "Ile-de-France"; L is "Limousin"; NPC is "Nord-Pas-de-Calais"; PL is "Pays-de-la-Loire"; PC is "Poitou-Charentes".
+
+```{r Save and load matrices}
+# save(X, file = "X.Rda")
+# save(X.count, file = "X.count.Rda")
+# save(Y.freq.prob, file = "Y.freq.prob.Rda")
+# save(Y.freq.count, file = "Y.freq.count.Rda")
+
+load("X.Rda")
+load("X.count.Rda")
+load("Y.freq.prob.Rda")
+load("Y.freq.count.Rda")
+```
+
+
+
+
+# Parameter Initialization
+
+```{r Normalize dataframes}
+# Normalize data for k-means clustering
+df.prob.norm = df.freq[,-which(names(df.freq) %in% c("PolicyID", "ClaimNb"))]
+df.prob.norm$CarAge = (df.prob.norm$CarAge - mean(df.prob.norm$CarAge))/sd(df.prob.norm$CarAge)
+df.prob.norm$DriverAge = (df.prob.norm$DriverAge - mean(df.prob.norm$DriverAge))/sd(df.prob.norm$DriverAge)
+df.prob.norm$non_zero = (df.prob.norm$zero - mean(df.prob.norm$zero))/sd(df.prob.norm$zero)
+
+df.count.norm = df.freq.count[,-which(names(df.freq.count) %in% c("PolicyID"))]
+df.count.norm$CarAge = (df.count.norm$CarAge - mean(df.count.norm$CarAge))/sd(df.count.norm$CarAge)
+df.count.norm$DriverAge = (df.count.norm$DriverAge - mean(df.count.norm$DriverAge))/sd(df.count.norm$DriverAge)
+df.count.norm$ClaimNb = (df.count.norm$ClaimNb - mean(df.count.norm$ClaimNb))/sd(df.count.norm$ClaimNb)
+```
+
+Before performing k-means clustering, try to determine the optimal number of clusters using the "Elbow Method".
+
+```{r Determine number of clusters}
+set.seed(7777)
+# Compute and plot wss for k = 1 to k = 10.
+wss <- sapply(1:10,
+              function(k){kmeans(data.matrix(df.prob.norm), k)$tot.withinss})
+
+# jpeg(file="wss.jpeg", width=600, height=400)
+plot(1:10, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of Clusters K",
+     ylab="Total Within-Clusters Sum of Squares")
+# dev.off()
+
+
+set.seed(7777)
+# Compute and plot wss for k = 1 to k = 10.
+wss <- sapply(1:10,
+              function(k){kmeans(data.matrix(df.count.norm), k)$tot.withinss})
+
+# jpeg(file="wss.jpeg", width=600, height=400)
+plot(1:10, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of Clusters K",
+     ylab="Total Within-Clusters Sum of Squares")
+# dev.off()
+```
+
+The optimal number of clusters seems to be 4.
+
+Following this reasoning, the analysis focuses on 4 clusters/latent groups.
+
+```{r Init analysis - Indicator}
+set.seed(7777)
+norm.km.cluster.3.prob = kmeans(data.matrix(df.prob.norm), 3)
+norm.init.analysis.3.prob = cluster.mm.frequency(df.freq$zero, norm.km.cluster.3.prob$cluster)
+
+set.seed(7777)
+norm.km.cluster.4.prob = kmeans(data.matrix(df.prob.norm), 4)
+norm.init.analysis.4.prob = cluster.mm.frequency(df.freq$zero, norm.km.cluster.4.prob$cluster)
+
+set.seed(7777)
+norm.km.cluster.5.prob = kmeans(data.matrix(df.prob.norm), 5)
+norm.init.analysis.5.prob = cluster.mm.frequency(df.freq$zero, norm.km.cluster.5.prob$cluster)
+
+set.seed(7777)
+norm.km.cluster.6.prob = kmeans(data.matrix(df.prob.norm), 6)
+norm.init.analysis.6.prob = cluster.mm.frequency(df.freq$zero, norm.km.cluster.6.prob$cluster)
+```
+
+```{r Init analysis - non-zero claims}
+# To be added
+
+# set.seed(7777)
+# norm.km.cluster.3.count = kmeans(data.matrix(df.count.norm), 3)
+# norm.init.analysis.3.count = cluster.mm.frequency(df.freq.count$ClaimNb, norm.km.cluster.3.count$cluster)
+# 
+# set.seed(7777)
+# norm.km.cluster.4.count = kmeans(data.matrix(df.count.norm), 4)
+# norm.init.analysis.4.count = cluster.mm.frequency(df.freq.count$ClaimNb, norm.km.cluster.4.count$cluster)
+# 
+# set.seed(7777)
+# norm.km.cluster.5.count = kmeans(data.matrix(df.count.norm), 5)
+# norm.init.analysis.5.count = cluster.mm.frequency(df.freq.count$ClaimNb, norm.km.cluster.5.count$cluster)
+# 
+# set.seed(7777)
+# norm.km.cluster.6.count = kmeans(data.matrix(df.count.norm), 6)
+# norm.init.analysis.6.count = cluster.mm.frequency(df.freq.count$ClaimNb, norm.km.cluster.6.count$cluster)
+```
+
+
+
+
+# Model Fitting
+
+Below we will fit hurdle Poisson with 3, 4, 5 and 6 latent groups.
+
+```{r Indicator model}
+model.list = NULL
+
+dim.m = 1
+n.covar = 30
+
+
+# Model, g=3
+
+n.comp = 3
+
+model.name = "freq.prob.3"
+comp.dist = matrix( c("binom", "binom", "binom"),
+                    nrow = dim.m, byrow = TRUE)
+
+alpha.init = matrix(0, nrow = n.comp, ncol = n.covar)
+alpha.init[,1] = c(log(0.21), log(0.25), log(0.54)) - log(0.54)
+
+zero.init = matrix( c(0, 0, 0),
+                    nrow = dim.m, byrow = TRUE)
+
+params.init = list( list( c(1, 0.90), c(1, 0.92), c(1, 0.95) ))
+
+hyper.alpha = 5
+
+hyper.params = list( list( c(),
+                           c(),
+                           c(),
+                           c()))
+
+model.list[[length(model.list)+1]] = list(model.name = model.name,
+                                          n.comp = n.comp, comp.dist = comp.dist,
+                                          alpha.init = alpha.init, zero.init = zero.init,
+                                          params.init = params.init,
+                                          hyper.alpha = hyper.alpha, hyper.params = hyper.params)
+
+
+# Model, g=4
+
+n.comp = 4
+
+model.name = "freq.prob.4"
+comp.dist = matrix( c("binom", "binom", "binom", "binom"),
+                    nrow = dim.m, byrow = TRUE)
+
+alpha.init = matrix(0, nrow = n.comp, ncol = n.covar)
+alpha.init[,1] = c(log(0.12), log(0.18), log(0.49), log(0.21)) - log(0.21)
+
+zero.init = matrix( c(0, 0, 0, 0),
+                    nrow = dim.m, byrow = TRUE)
+
+params.init = list( list( c(1, 0.963), c(1, 0.972), c(1, 0.961), c(1, 0.958) ))
+
+hyper.alpha = 5
+
+hyper.params = list( list( c(),
+                           c(),
+                           c(),
+                           c()))
+
+model.list[[length(model.list)+1]] = list(model.name = model.name,
+                                          n.comp = n.comp, comp.dist = comp.dist,
+                                          alpha.init = alpha.init, zero.init = zero.init,
+                                          params.init = params.init,
+                                          hyper.alpha = hyper.alpha, hyper.params = hyper.params)
+
+
+# Model, g=5
+
+n.comp = 5
+
+model.name = "freq.prob.5"
+comp.dist = matrix( c("binom", "binom", "binom", "binom", "binom"),
+                    nrow = dim.m, byrow = TRUE)
+
+alpha.init = matrix(0, nrow = n.comp, ncol = n.covar)
+alpha.init[,1] = c(log(0.11), log(0.15), log(0.13), log(0.15), log(0.46)) - log(0.46)
+
+zero.init = matrix( c(0, 0, 0, 0, 0),
+                    nrow = dim.m, byrow = TRUE)
+
+params.init = list( list( c(1, 0.962), c(1, 0.974), c(1, 0.963), c(1, 0.959), c(1, 0.961) ))
+
+hyper.alpha = 5
+
+hyper.params = list( list( c(),
+                           c(),
+                           c(),
+                           c(),
+                           c()))
+
+model.list[[length(model.list)+1]] = list(model.name = model.name,
+                                          n.comp = n.comp, comp.dist = comp.dist,
+                                          alpha.init = alpha.init, zero.init = zero.init,
+                                          params.init = params.init,
+                                          hyper.alpha = hyper.alpha, hyper.params = hyper.params)
+
+
+# Model, g=6
+
+n.comp = 6
+
+model.name = "freq.prob.6"
+comp.dist = matrix( c("binom", "binom", "binom", "binom", "binom", "binom"),
+                    nrow = dim.m, byrow = TRUE)
+
+alpha.init = matrix(0, nrow = n.comp, ncol = n.covar)
+alpha.init[,1] = c(log(0.07), log(0.10), log(0.19), log(0.15), log(0.34), log(0.15)) - log(0.15)
+
+zero.init = matrix( c(0, 0, 0, 0, 0, 0),
+                    nrow = dim.m, byrow = TRUE)
+
+params.init = list( list( c(1, 0.963), c(1, 0.966), c(1, 0.962), c(1, 0.959), c(1, 0.960), c(1, 0.974) ))
+
+hyper.alpha = 5
+
+hyper.params = list( list( c(),
+                           c(),
+                           c(),
+                           c(),
+                           c(),
+                           c()))
+
+model.list[[length(model.list)+1]] = list(model.name = model.name,
+                                          n.comp = n.comp, comp.dist = comp.dist,
+                                          alpha.init = alpha.init, zero.init = zero.init,
+                                          params.init = params.init,
+                                          hyper.alpha = hyper.alpha, hyper.params = hyper.params)
+```
+
+
+```{r Truncated frequency model}
+model.list = NULL
+
+dim.m = 1
+n.covar = 30
+
+
+# Model, g=3
+
+n.comp = 3
+
+model.name = "ztpoisson.3"
+comp.dist = matrix( c("ztpoisson", "ztpoisson", "ztpoisson"),
+                    nrow = dim.m, byrow = TRUE)
+
+alpha.init = matrix(0, nrow = n.comp, ncol = n.covar)
+alpha.init[,1] = c(log(0.23), log(0.21), log(0.56)) - log(0.56)
+
+zero.init = matrix( c(0, 0, 0),
+                    nrow = dim.m, byrow = TRUE)
+
+params.init = list( list( c(1.0642), c(1.0597), c(1.0431) ))
+
+hyper.alpha = 5
+
+hyper.params = list( list( c(5, 5),
+                           c(5, 5),
+                           c(5, 5)))
+
+model.list[[length(model.list)+1]] = list(model.name = model.name,
+                                          n.comp = n.comp, comp.dist = comp.dist,
+                                          alpha.init = alpha.init, zero.init = zero.init,
+                                          params.init = params.init,
+                                          hyper.alpha = hyper.alpha, hyper.params = hyper.params)
+
+
+# Model, g=4
+
+n.comp = 4
+
+model.name = "ztpoisson.4"
+comp.dist = matrix( c("ztpoisson", "ztpoisson", "ztpoisson", "ztpoisson"),
+                    nrow = dim.m, byrow = TRUE)
+
+alpha.init = matrix(0, nrow = n.comp, ncol = n.covar)
+alpha.init[,1] = c(log(0.39), log(0.22), log(0.21), log(0.18)) - log(0.18)
+
+zero.init = matrix( c(0, 0, 0, 0),
+                    nrow = dim.m, byrow = TRUE)
+
+# params.init = list( list( c(1.0470), c(1.0355), c(1.0584), c(1.0721) ))
+
+params.init = list( list( c(0.09037088), c(0.1014794), c(0.1117575), c(0.1223809) ))
+
+hyper.alpha = 5
+
+hyper.params = list( list( c(5, 5),
+                           c(5, 5),
+                           c(5, 5),
+                           c(5, 5)))
+
+model.list[[length(model.list)+1]] = list(model.name = model.name,
+                                          n.comp = n.comp, comp.dist = comp.dist,
+                                          alpha.init = alpha.init, zero.init = zero.init,
+                                          params.init = params.init,
+                                          hyper.alpha = hyper.alpha, hyper.params = hyper.params)
+
+
+# Model, g=5
+
+n.comp = 5
+
+model.name = "ztpoisson.5"
+comp.dist = matrix( c("ztpoisson", "ztpoisson", "ztpoisson", "ztpoisson", "ztpoisson"),
+                    nrow = dim.m, byrow = TRUE)
+
+alpha.init = matrix(0, nrow = n.comp, ncol = n.covar)
+alpha.init[,1] = c(log(0.15), log(0.19), log(0.39), log(0.09), log(0.18)) - log(0.18)
+
+zero.init = matrix( c(0, 0, 0, 0, 0),
+                    nrow = dim.m, byrow = TRUE)
+
+params.init = list( list( c(1.0736), c(1.0327), c(1.0471), c(1.0542), c(1.0607) ))
+
+hyper.alpha = 5
+
+hyper.params = list( list( c(5, 5),
+                           c(5, 5),
+                           c(5, 5),
+                           c(5, 5),
+                           c(5, 5)))
+
+model.list[[length(model.list)+1]] = list(model.name = model.name,
+                                          n.comp = n.comp, comp.dist = comp.dist,
+                                          alpha.init = alpha.init, zero.init = zero.init,
+                                          params.init = params.init,
+                                          hyper.alpha = hyper.alpha, hyper.params = hyper.params)
+
+
+# Model, g=6
+
+n.comp = 6
+
+model.name = "ztpoisson.6"
+comp.dist = matrix( c("ztpoisson", "ztpoisson", "ztpoisson", "ztpoisson", "ztpoisson", "ztpoisson"),
+                    nrow = dim.m, byrow = TRUE)
+
+alpha.init = matrix(0, nrow = n.comp, ncol = n.covar)
+alpha.init[,1] = c(log(0.10), log(0.18), log(0.33), log(0.08), log(0.14), log(0.17)) - log(0.17)
+
+zero.init = matrix( c(0, 0, 0, 0, 0, 0),
+                    nrow = dim.m, byrow = TRUE)
+
+params.init = list( list( c(1.0614), c(1.0314), c(1.0455), c(1.0563), c(1.0701), c(1.0605) ))
+
+hyper.alpha = 5
+
+hyper.params = list( list( c(5, 5),
+                           c(5, 5),
+                           c(5, 5),
+                           c(5, 5),
+                           c(5, 5),
+                           c(5, 5)))
+
+model.list[[length(model.list)+1]] = list(model.name = model.name,
+                                          n.comp = n.comp, comp.dist = comp.dist,
+                                          alpha.init = alpha.init, zero.init = zero.init,
+                                          params.init = params.init,
+                                          hyper.alpha = hyper.alpha, hyper.params = hyper.params)
+```
+
+```{r Function: do_fitting}
+do_fitting = function(Y, X, b, model){
+
+  # Output file names: may be modified
+
+  model.name = toString(paste(model$model.name, sep=""))
+  rda.name = toString(paste(model.name, ".Rda", sep=""))
+  output.name = toString(paste(model.name, ".txt", sep=""))
+
+  # Open new file to save intermediate update of parameter values
+  sink(file = output.name, append = FALSE, type = c("output", "message"), split = FALSE)
+
+  # Call fitting function
+  tryCatch({model.fit = LRMoECPNew::LRMoEFit(Y = Y, X = X, n.comp = model$n.comp,
+                                         comp.dist = model$comp.dist,
+                                         alpha.init = model$alpha.init,
+                                         zero.init = model$zero.init,
+                                         params.init = model$params.init,
+                                         penalty = TRUE,
+                                         hyper.alpha = model$hyper.alpha,
+                                         hyper.params = model$hyper.params,
+                                         eps = 0.05, ecm.iter.max = 500,
+                                         print = TRUE)
+  save(model.fit, file = rda.name)
+  },
+  error=function(e){"Error!"; print("Error!")}
+  )
+
+  # Save intermediate update of parameter values
+  sink()
+
+  # Optional: use mailR to get running status. Code is omitted.
+
+}
+```
+
+```{r Model fitting process}
+# Specify how many models to fit in parallel
+ncore = 1
+n.run = length(model.list)
+
+# Make computing clusters: standard procedure
+cl = makePSOCKcluster(ncore)
+registerDoParallel(cl)
+
+# Call fitting functions in parallel
+ecm.table = foreach(b=1:n.run) %dopar% {do_fitting(Y.freq.count, X.count, b, model.list[[b]])}
+
+# Stop computing clusters: standard procedure
+stopCluster(cl)
+```
+
+
+## Chi-square
+
+```{r Parameters for chi-square - Indicator}
+load("freq.prob.3.Rda")
+
+model.fit$params.fit
+
+# probability of zero claim
+zero_list = c(0.8747858927, 0.9664985859, 0.9951930029)
+# zero_list = c(0.8729826912, 1, 0.9599983532, 0.9813132223)
+# zero_list = c(0.914347674, 1, 0.9999981419, 0.8699153147, 0.9817117845)
+# zero_list = c(1, 1, 0.9896356682, 0.8743273681, 0.9506521371, 0.9999999989)
+
+# mixing weights
+prob = predict.class.prob(X, model.fit$alpha.fit)
+
+# total probability of zero for each policy
+zero_prob = rowSums( sweep(prob, MARGIN = 2 , STATS = zero_list, FUN = "*", check.margin = TRUE))
+
+# Expected
+sum(zero_prob)
+```
+
+```{r Parameters for chi-square - truncated frequency}
+load("freq.count.3.Rda")
+
+model.fit$params.fit
+
+lambda_list = c(0.1254843916, 0.2568734563, 0.03877636048)
+# lambda_list = c(0.03250610771, 0.09101403857, 0.2490671747, 0.1467077306)
+# lambda_list = c(0.2553131243, 0.102712021, 0.0306601797, 0.2912444136, 0.1133973949)
+# lambda_list = c(0.275665801, 0.05966632376, 0.02647730206, 0.2771900455, 0.2234013966, 0.1151897319)
+
+# mixing weights
+prob.count = predict.class.prob(X, model.fit$alpha.fit)
+
+# expected for each component
+pdf = dztpois(4, lambda_list)
+
+# total expected for each policy
+pos = rowSums(sweep(prob.count, MARGIN = 2 , STATS = pdf, FUN = "*", check.margin = TRUE))
+
+# multiply by probability of non-zero
+store = (1-zero_prob)*pos
+
+sum(store)
+```
+
+This concludes the fitting for Hurdle Poisson LRMoE models.
