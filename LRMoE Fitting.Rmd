@@ -14,7 +14,7 @@ library(rmutil)
 
 # LRMoE package
 library(devtools)
-install_github("sparktseung/LRMoE")
+# install_github("sparktseung/LRMoE")
 library(LRMoE)
 
 # French Motor Third-Party Liability datasets
@@ -236,14 +236,15 @@ Before performing k-means clustering, we try to determine the optimal number of 
 set.seed(7777)
 # Compute and plot wss for k = 1 to k = 10.
 wss <- sapply(1:10,
-              function(k){kmeans(data.matrix(df.all.norm), k)$tot.withinss})
+              function(k){kmeans(data.matrix(df.freq.norm), k)$tot.withinss})
 
-# jpeg(file="wss.jpeg", width=600, height=400)
-plot(1:10, wss,
+png(file="wss_freq.png", width=600, height=400)
+plot(1:10, wss, main="Elbow Method for Frequency",
      type="b", pch = 19, frame = FALSE, 
-     xlab="Number of Clusters K",
-     ylab="Total Within-Clusters Sum of Squares")
-# dev.off()
+     xlab="Number of Clusters g",
+     ylab="Total Within-Cluster Sum of Squares")
+
+dev.off()
 ```
 
 There seems to be kinks at k=4 and at k=6 (for frequency, severity and aggregate), indicating that the optimal number of clusters may be 4 or 6.
@@ -258,58 +259,48 @@ For severity, we fitted models with 4, 6 and 8 latent groups.  This is motivated
 
 ```{r Init analysis - total}
 set.seed(7777)
-norm.km.cluster.3 = kmeans(data.matrix(df.all.norm), 3)
-norm.init.analysis.3 = cluster.mm.severity(df.all$ClaimAmount, norm.km.cluster.3$cluster)
-save(norm.init.analysis.3, file = "Init3.Rda")
+init.analysis.3 = CMMSeverity(Y[,2], X, 3)
+save(init.analysis.3, file = "Init3.Rda")
 
 set.seed(7777)
-norm.km.cluster.4 = kmeans(data.matrix(df.all.norm), 4)
-norm.init.analysis.4 = cluster.mm.severity(df.all$ClaimAmount, norm.km.cluster.4$cluster)
-save(norm.init.analysis.4, file = "Init4.Rda")
+init.analysis.4 = CMMSeverity(Y[,2], X, 4)
+save(init.analysis.4, file = "Init4.Rda")
 
 set.seed(7777)
-norm.km.cluster.5 = kmeans(data.matrix(df.all.norm), 5)
-norm.init.analysis.5 = cluster.mm.severity(df.all$ClaimAmount, norm.km.cluster.5$cluster)
-save(norm.init.analysis.5, file = "Init5.Rda")
+init.analysis.5 = CMMSeverity(Y[,2], X, 5)
+save(init.analysis.5, file = "Init5.Rda")
 
 set.seed(7777)
-norm.km.cluster.6 = kmeans(data.matrix(df.all.norm), 6)
-norm.init.analysis.6 = cluster.mm.severity(df.all$ClaimAmount, norm.km.cluster.6$cluster)
-save(norm.init.analysis.6, file = "Init6.Rda")
+init.analysis.6 = CMMSeverity(Y[,2], X, 6)
+save(init.analysis.6, file = "Init6.Rda")
 ```
 
 ```{r Init analysis - frequency}
 set.seed(7777)
-norm.km.cluster.4.freq = kmeans(data.matrix(df.freq.norm), 4)
-norm.init.analysis.4.freq = cluster.mm.frequency(df.freq$ClaimNb, norm.km.cluster.4.freq$cluster)
-save(norm.init.analysis.4.freq, file = "freq.Init4.Rda")
+init.analysis.4.freq = CMMFrequency(Y.freq[,2], X, 4)
+save(init.analysis.4.freq, file = "freq.Init4.Rda")
 
 set.seed(7777)
-norm.km.cluster.5.freq = kmeans(data.matrix(df.freq.norm), 5)
-norm.init.analysis.5.freq = cluster.mm.frequency(df.freq$ClaimNb, norm.km.cluster.5.freq$cluster)
-save(norm.init.analysis.5.freq, file = "freq.Init5.Rda")
+init.analysis.5.freq = CMMFrequency(Y.freq[,2], X, 5)
+save(init.analysis.5.freq, file = "freq.Init5.Rda")
 
 set.seed(7777)
-norm.km.cluster.6.freq = kmeans(data.matrix(df.freq.norm), 6)
-norm.init.analysis.6.freq = cluster.mm.frequency(df.freq$ClaimNb, norm.km.cluster.6.freq$cluster)
-save(norm.init.analysis.6.freq, file = "freq.Init6.Rda")
+init.analysis.6.freq = CMMFrequency(Y.freq[,2], X, 6)
+save(init.analysis.6.freq, file = "freq.Init6.Rda")
 ```
 
 ```{r Init analysis - severity}
 set.seed(7777)
-norm.km.cluster.4.sev = kmeans(data.matrix(df.sev.norm), 4)
-norm.init.analysis.4.sev = cluster.mm.severity(df.sev$ClaimAmount, norm.km.cluster.4.sev$cluster)
-save(norm.init.analysis.4.sev, file = "sev.Init4.Rda")
+init.analysis.4.sev = CMMSeverity(Y.sev[,2], X.sev, 4)
+save(init.analysis.4.sev, file = "sev.Init4.Rda")
 
 set.seed(7777)
-norm.km.cluster.6.sev = kmeans(data.matrix(df.sev.norm), 6)
-norm.init.analysis.6.sev = cluster.mm.severity(df.sev$ClaimAmount, norm.km.cluster.6.sev$cluster)
-save(norm.init.analysis.6.sev, file = "sev.Init6.Rda")
+init.analysis.6.sev = CMMSeverity(Y.sev[,2], X.sev, 6)
+save(init.analysis.6.sev, file = "sev.Init6.Rda")
 
 set.seed(7777)
-norm.km.cluster.8.sev = kmeans(data.matrix(df.sev.norm), 8)
-norm.init.analysis.8.sev = cluster.mm.severity(df.sev$ClaimAmount, norm.km.cluster.8.sev$cluster)
-save(norm.init.analysis.8.sev, file = "sev.Init8.Rda")
+init.analysis.8.sev = CMMSeverity(Y.sev[,2], X.sev, 8)
+save(init.analysis.8.sev, file = "sev.Init8.Rda")
 ```
 
 
@@ -484,7 +475,7 @@ do_fitting = function(Y, X, b, model){
   sink(file = output.name, append = FALSE, type = c("output", "message"), split = FALSE)
 
   # Call fitting function
-  tryCatch({model.fit = LRMoE::LRMoE.fit(Y = Y, X = X, n.comp = model$n.comp,
+  tryCatch({model.fit = LRMoE::LRMoEFit(Y = Y, X = X, n.comp = model$n.comp,
                                          comp.dist = model$comp.dist,
                                          alpha.init = model$alpha.init,
                                          zero.init = model$zero.init,
@@ -562,4 +553,3 @@ sum(store)
 ```
 
 This concludes the fitting procedure of LRMoE.
-

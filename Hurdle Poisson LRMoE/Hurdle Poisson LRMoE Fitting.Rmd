@@ -13,7 +13,7 @@ library(actuar)
 
 # LRMoE package
 library(devtools)
-install_github("sparktseung/LRMoE")
+# install_github("sparktseung/LRMoE")
 library(LRMoE)
 
 # install_github("sparktseung/LRMoECPNew", auth_token = "5922c38181c58dac4e901b68051f86da78f53def")
@@ -176,40 +176,32 @@ Following this reasoning, the analysis focuses on 4 clusters/latent groups.
 
 ```{r Init analysis - Indicator}
 set.seed(7777)
-norm.km.cluster.3.prob = kmeans(data.matrix(df.prob.norm), 3)
-norm.init.analysis.3.prob = cluster.mm.frequency(df.freq$zero, norm.km.cluster.3.prob$cluster)
+init.analysis.3.prob = CMMFrequency(Y.freq.prob[, 2], X, 3)
 
 set.seed(7777)
-norm.km.cluster.4.prob = kmeans(data.matrix(df.prob.norm), 4)
-norm.init.analysis.4.prob = cluster.mm.frequency(df.freq$zero, norm.km.cluster.4.prob$cluster)
+init.analysis.4.prob = CMMFrequency(Y.freq.prob[, 2], X, 4)
 
 set.seed(7777)
-norm.km.cluster.5.prob = kmeans(data.matrix(df.prob.norm), 5)
-norm.init.analysis.5.prob = cluster.mm.frequency(df.freq$zero, norm.km.cluster.5.prob$cluster)
+init.analysis.5.prob = CMMFrequency(Y.freq.prob[, 2], X, 5)
 
 set.seed(7777)
-norm.km.cluster.6.prob = kmeans(data.matrix(df.prob.norm), 6)
-norm.init.analysis.6.prob = cluster.mm.frequency(df.freq$zero, norm.km.cluster.6.prob$cluster)
+init.analysis.6.prob = CMMFrequency(Y.freq.prob[, 2], X, 6)
 ```
 
 ```{r Init analysis - non-zero claims}
-# To be added
-
-# set.seed(7777)
-# norm.km.cluster.3.count = kmeans(data.matrix(df.count.norm), 3)
-# norm.init.analysis.3.count = cluster.mm.frequency(df.freq.count$ClaimNb, norm.km.cluster.3.count$cluster)
+# # Functions to be revised
 # 
 # set.seed(7777)
-# norm.km.cluster.4.count = kmeans(data.matrix(df.count.norm), 4)
-# norm.init.analysis.4.count = cluster.mm.frequency(df.freq.count$ClaimNb, norm.km.cluster.4.count$cluster)
+# init.analysis.3.count = CMMFrequency(Y.freq.count[, 2], X.count, 3)
 # 
 # set.seed(7777)
-# norm.km.cluster.5.count = kmeans(data.matrix(df.count.norm), 5)
-# norm.init.analysis.5.count = cluster.mm.frequency(df.freq.count$ClaimNb, norm.km.cluster.5.count$cluster)
+# init.analysis.4.count = CMMFrequency(Y.freq.count[, 2], X.count, 4)
 # 
 # set.seed(7777)
-# norm.km.cluster.6.count = kmeans(data.matrix(df.count.norm), 6)
-# norm.init.analysis.6.count = cluster.mm.frequency(df.freq.count$ClaimNb, norm.km.cluster.6.count$cluster)
+# init.analysis.5.count = CMMFrequency(Y.freq.count[, 2], X.count, 5)
+# 
+# set.seed(7777)
+# init.analysis.6.count = CMMFrequency(Y.freq.count[, 2], X.count, 6)
 ```
 
 
@@ -494,7 +486,7 @@ do_fitting = function(Y, X, b, model){
   sink(file = output.name, append = FALSE, type = c("output", "message"), split = FALSE)
 
   # Call fitting function
-  tryCatch({model.fit = LRMoECPNew::LRMoEFit(Y = Y, X = X, n.comp = model$n.comp,
+  tryCatch({model.fit = LRMoE::LRMoEFit(Y = Y, X = X, n.comp = model$n.comp,
                                          comp.dist = model$comp.dist,
                                          alpha.init = model$alpha.init,
                                          zero.init = model$zero.init,

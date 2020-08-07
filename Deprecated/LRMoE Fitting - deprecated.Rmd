@@ -1,0 +1,565 @@
+---
+title: "LRMoE Fitting"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(ggplot2)
+library(doParallel)
+library(parallel)
+library(actuar)
+library(rmutil)
+
+# LRMoE package
+library(devtools)
+install_github("sparktseung/LRMoE")
+library(LRMoE)
+
+# French Motor Third-Party Liability datasets
+library(CASdatasets)
+data(freMTPLfreq, freMTPLsev)
+```
+
+# Introduction/Recap
+
+We work with the French Motor Third-Party Liability datasets "freMTPLfreq" and "freMTPLsev".
+
+"freMTPLfreq" contains 10 columns:
+1. PolicyID: The unique identifier policy ID (used to link with the claims dataset).
+2. ClaimNb: Number of claims during the exposure period.
+3. Exposure: The period of exposure for a policy, in years.
+4. Power: The power of the car (ordered categorical).
+5. CarAge: The vehicle age, in years.
+6. DriverAge The driver age, in years.
+7. Brand: The car brand, divided into 7 groups.
+8. Gas: The car gas, Diesel or regular.
+9. Region: The policy region in France (based on the 1970-2015 classiﬁcation).
+10. Density: The density of inhabitants (number of inhabitants per km2) in the city the policyholder lives in.
+
+"freMTPLsev" contains 2 columns:
+1. PolicyID
+2. ClaimAmount: The cost of the claim.
+
+For simplicity, we neglect information on "Exposure" and "Density".  The removal of the former sets the exposure to a default of 1.  Justifications:
+1. Since majority of the policies has exposure period within a year with 1 being the mode, we expect the effect of such removal to be moderate.
+2. We will neglect both information throughout the whole project, putting all models on a level playing field.
+
+We will also give a few definitions before-hand.
+1. Claim: the request made by a policyholder to the insurer to compensate for a loss covered by the insurance.
+2. Claim amount: the amount of money that the insurer must pay.
+3. Claim frequency: the number of claims per policy.
+4. Claim severity: the size/amount per claim.
+
+
+
+
+# Task Description
+
+This session of the project looks at claim modelling using the Logit-weighted Reduced Mixture of Experts (LRMoE) models.  LRMoE is a class of Mixture of Experts (MoE) models with the following specifications:
+1. Employ a logit-type gating function.
+2. Remove the regression structure in the expert functions, such that only the gating functions regress on the covariates.
+
+Our goal is to predict the expected value (or mean) of the total claim amount per policy, i.e. the total costs of all claims incurred by each policyholder.
+
+There are two common modelling approaches:
+1. Model the claim frequency and severity separately, then multiply the predictions of both to produce the total claim amount.
+2. Model the total claim amount per policy directly.
+
+We will illustrate both approaches.
+
+We will utilize the package "LRMoE".  Currently the LRMoE model does not support random effects yet.
+
+
+
+
+# Data Processing
+
+LRMoE requires the input data to be structured in a specific manner.  We will start with data processing.
+
+Prepare dataframes for frequency, severity and aggregate claim amounts.
+
+For aggregate claim amounts:
+1. Aggregate the claim amounts by policies (using PolicyID).
+2. Combine the two datasets by matching PolicyID.  If a specific policy has no claim, its claim amount appears as "NA" so we replace these values by 0.
+3. Drop covariates "Exposure" and "Density".
+
+For severity, combine the two datasets by matching PolicyID; only include non-zero claim amounts and corresponding policyholder information.
+
+Note: Severity dataframe is smaller (have fewer observations) than the other two.
+
+```{r Dataframes}
+# Aggregate claim amounts
+sev.aggre = aggregate(freMTPLsev$ClaimAmount, by = list(PolicyID = freMTPLsev$PolicyID), FUN = "sum")
+colnames(sev.aggre)[2] = "AggreAmount"
+
+# Match two datasets by PolicyID. NA values correspond to no claims.
+df.all = merge(freMTPLfreq, sev.aggre, by = "PolicyID", all = TRUE)
+df.all$AggreAmount[is.na(df.all$AggreAmount)] = 0
+df.all = df.all[,-which(names(df.all) %in% c("Exposure", "Density"))]
+
+# Frequency dataframe
+df.freq = freMTPLfreq[,-which(names(freMTPLfreq) %in% c("Exposure", "Density"))]
+
+# Severity dataframe, only non-zero claim amounts and corresponding policyholder information
+df.sev = merge(freMTPLsev, freMTPLfreq, by = "PolicyID", all = FALSE)
+df.sev = df.sev[,-which(names(df.sev) %in% c("Exposure", "Density"))]
+
+# png(file="exploratory1.png", width=600, height=400)
+# hist(log(df.sev$ClaimAmount), breaks=500,
+#      xlab="log(Claim Amount)", main="Histogram of log(Claim Amount)")
+# dev.off()
+# 
+# png(file="exploratory2.png", width=600, height=400)
+# hist(log(df.all$ClaimAmount), breaks=500,
+#      xlab="log(Aggregate Amount)", main="Histogram of log(Aggregate Amount)")
+# dev.off()
+```
+
+We can see that aggregate claim amounts seem to be multi-modal, supporting the use of LRMoE.
+
+```{r Y matrices building}
+# Build matrix Y (claim information); no censoring nor truncation
+
+sample.size = nrow(df.all)
+
+Y.freq = matrix(c(rep(0, sample.size), # = tl
+             df.freq$ClaimNb, # = yl
+             df.freq$ClaimNb, # = yu
+             rep(Inf, sample.size) # = tu
+             ), ncol = 4, byrow = FALSE)
+
+Y.sev = matrix(c(rep(0, nrow(df.sev)), # = tl
+             df.sev$ClaimAmount, # = yl
+             df.sev$ClaimAmount, # = yu
+             rep(Inf, nrow(df.sev)) # = tu
+             ), ncol = 4, byrow = FALSE)
+
+Y = matrix(c(rep(0, sample.size), # = tl
+             df.all$AggreAmount, # = yl
+             df.all$AggreAmount, # = yu
+             rep(Inf, sample.size) # = tu
+             ), ncol = 4, byrow = FALSE)
+```
+
+```{r X matrices building}
+# Build matrix X (covariates)
+
+X.continuous = cbind(df.all$CarAge, df.all$DriverAge)
+X.power = model.matrix(~df.all$Power, data = df.all) # Default is 'd'
+X.brand = model.matrix(~df.all$Brand, data = df.all) # Default is 'Fiat'
+X.gas = model.matrix(~df.all$Gas, data = df.all) # Default is 'Diesel'
+X.region = model.matrix(~df.all$Region, data = df.all) # Default is 'Aquitaine'
+X = matrix(cbind(rep(1, sample.size), # Intercept
+                 X.continuous, X.power[,-1], X.brand[,-1], X.gas[,-1], X.region[,-1]), 
+           nrow = sample.size, byrow = FALSE)
+
+colnames(X) = c("Intercept", "CarAge", "DriverAge",
+                "Powere", "Powerf", "Powerg", "Powerh", "Poweri", "Powerj", 
+                "Powerk", "Powerl", "Powerm", "Powern", "Powero",
+                "BrandJK", "BrandMCB", "BrandOGF", "BrandOther", "BrandRNC", "BrandVAS",
+                "GasRegular",
+                "RegionBN", "RegionB", "RegionC", "RegionHN", "RegionIF",
+                "RegionL", "RegionNPC", "RegionPL", "RegionPC")
+
+
+X.sev.continuous = cbind(df.sev$CarAge, df.sev$DriverAge)
+X.sev.power = model.matrix(~df.sev$Power, data = df.sev) # Default is 'd'
+X.sev.brand = model.matrix(~df.sev$Brand, data = df.sev) # Default is 'Fiat'
+X.sev.gas = model.matrix(~df.sev$Gas, data = df.sev) # Default is 'Diesel'
+X.sev.region = model.matrix(~df.sev$Region, data = df.sev) # Default is 'Aquitaine'
+X.sev = matrix(cbind(rep(1, nrow(df.sev)), # Intercept
+                 X.sev.continuous, X.sev.power[,-1], X.sev.brand[,-1], X.sev.gas[,-1], X.sev.region[,-1]), 
+           nrow = nrow(df.sev), byrow = FALSE)
+
+colnames(X.sev) = c("Intercept", "CarAge", "DriverAge",
+                "Powere", "Powerf", "Powerg", "Powerh", "Poweri", "Powerj", 
+                "Powerk", "Powerl", "Powerm", "Powern", "Powero",
+                "BrandJK", "BrandMCB", "BrandOGF", "BrandOther", "BrandRNC", "BrandVAS",
+                "GasRegular",
+                "RegionBN", "RegionB", "RegionC", "RegionHN", "RegionIF",
+                "RegionL", "RegionNPC", "RegionPL", "RegionPC")
+```
+
+Intercept is 1.
+
+Power: default is "d".
+
+Brand: default is "Fiat"; JK is "Japanese (except Nissan) or Korean"; MCB is "Mercedes, Chrysler or BMW"; OGF is "Opel, General Motors or Ford"; Other is "other"; RNC is "Renault, Nissan or Citroen"; VAS is "Volkswagen, Audi, Skoda or Seat".
+
+GasRegular: default is "Diesel", the other is "Regular".
+
+Region: default is "Aquitaine"; BN is "Basse-Normandie"; B is "Bretagne"; C is "Centre"; HN is "Haute-Normandie"; IF is "Ile-de-France"; L is "Limousin"; NPC is "Nord-Pas-de-Calais"; PL is "Pays-de-la-Loire"; PC is "Poitou-Charentes".
+
+```{r Save and load matrices}
+# save(X, file = "X.Rda")
+# save(X.sev, file = "X.sev.Rda")
+# save(Y, file = "Y.Rda")
+# save(Y.freq, file = "Y.freq.Rda")
+# save(Y.sev, file = "Y.sev.Rda")
+
+load("X.Rda")
+load("X.sev.Rda")
+load("Y.Rda")
+load("Y.sev.Rda")
+load("Y.freq.Rda")
+```
+
+
+
+
+# Parameter Initialization
+
+```{r Normalize dataframes}
+# Normalize data for k-means clustering
+
+df.all.norm = df.all[,-which(names(df.all) %in% c("PolicyID", "ClaimNb"))]
+df.all.norm$CarAge = (df.all$CarAge - mean(df.all$CarAge))/sd(df.all$CarAge)
+df.all.norm$DriverAge = (df.all$DriverAge - mean(df.all$DriverAge))/sd(df.all$DriverAge)
+df.all.norm$AggreAmount = (df.all$AggreAmount - mean(df.all$AggreAmount))/sd(df.all$AggreAmount)
+
+df.freq.norm = df.freq[,-which(names(df.freq) %in% c("PolicyID", "ClaimAmount"))]
+df.freq.norm$CarAge = (df.freq$CarAge - mean(df.freq$CarAge))/sd(df.freq$CarAge)
+df.freq.norm$DriverAge = (df.freq$DriverAge - mean(df.freq$DriverAge))/sd(df.freq$DriverAge)
+df.freq.norm$ClaimNb = (df.freq$ClaimNb - mean(df.freq$ClaimNb))/sd(df.freq$ClaimNb)
+
+df.sev.norm = df.sev[,-which(names(df.sev) %in% c("PolicyID", "ClaimNb"))]
+df.sev.norm$CarAge = (df.sev$CarAge - mean(df.sev$CarAge))/sd(df.sev$CarAge)
+df.sev.norm$DriverAge = (df.sev$DriverAge - mean(df.sev$DriverAge))/sd(df.sev$DriverAge)
+df.sev.norm$ClaimAmount = (df.sev$ClaimAmount - mean(df.sev$ClaimAmount))/sd(df.sev$ClaimAmount)
+```
+
+Before performing k-means clustering, we try to determine the optimal number of clusters using the "Elbow Method".
+
+```{r Determine number of clusters}
+set.seed(7777)
+# Compute and plot wss for k = 1 to k = 10.
+wss <- sapply(1:10,
+              function(k){kmeans(data.matrix(df.all.norm), k)$tot.withinss})
+
+# jpeg(file="wss.jpeg", width=600, height=400)
+plot(1:10, wss,
+     type="b", pch = 19, frame = FALSE, 
+     xlab="Number of Clusters K",
+     ylab="Total Within-Clusters Sum of Squares")
+# dev.off()
+```
+
+There seems to be kinks at k=4 and at k=6 (for frequency, severity and aggregate), indicating that the optimal number of clusters may be 4 or 6.
+
+Following this reasoning, we mainly fit models with 4-6 clusters/latent groups.
+
+For aggregate claim amounts, we fitted models with 3-6 latent groups.
+
+For frequency, we fitted models with 4 and 5 latent groups.  Improvement from 4 to 5 latent groups is not particularly significant, so we did not go on to fit 6 latent groups.
+
+For severity, we fitted models with 4, 6 and 8 latent groups.  This is motivated by the large range of claim amounts.  However, the chi-square evaluation below suggest that more latent groups do not necessarily provide a better fit.
+
+```{r Init analysis - total}
+set.seed(7777)
+norm.km.cluster.3 = kmeans(data.matrix(df.all.norm), 3)
+norm.init.analysis.3 = cluster.mm.severity(df.all$ClaimAmount, norm.km.cluster.3$cluster)
+save(norm.init.analysis.3, file = "Init3.Rda")
+
+set.seed(7777)
+norm.km.cluster.4 = kmeans(data.matrix(df.all.norm), 4)
+norm.init.analysis.4 = cluster.mm.severity(df.all$ClaimAmount, norm.km.cluster.4$cluster)
+save(norm.init.analysis.4, file = "Init4.Rda")
+
+set.seed(7777)
+norm.km.cluster.5 = kmeans(data.matrix(df.all.norm), 5)
+norm.init.analysis.5 = cluster.mm.severity(df.all$ClaimAmount, norm.km.cluster.5$cluster)
+save(norm.init.analysis.5, file = "Init5.Rda")
+
+set.seed(7777)
+norm.km.cluster.6 = kmeans(data.matrix(df.all.norm), 6)
+norm.init.analysis.6 = cluster.mm.severity(df.all$ClaimAmount, norm.km.cluster.6$cluster)
+save(norm.init.analysis.6, file = "Init6.Rda")
+```
+
+```{r Init analysis - frequency}
+set.seed(7777)
+norm.km.cluster.4.freq = kmeans(data.matrix(df.freq.norm), 4)
+norm.init.analysis.4.freq = cluster.mm.frequency(df.freq$ClaimNb, norm.km.cluster.4.freq$cluster)
+save(norm.init.analysis.4.freq, file = "freq.Init4.Rda")
+
+set.seed(7777)
+norm.km.cluster.5.freq = kmeans(data.matrix(df.freq.norm), 5)
+norm.init.analysis.5.freq = cluster.mm.frequency(df.freq$ClaimNb, norm.km.cluster.5.freq$cluster)
+save(norm.init.analysis.5.freq, file = "freq.Init5.Rda")
+
+set.seed(7777)
+norm.km.cluster.6.freq = kmeans(data.matrix(df.freq.norm), 6)
+norm.init.analysis.6.freq = cluster.mm.frequency(df.freq$ClaimNb, norm.km.cluster.6.freq$cluster)
+save(norm.init.analysis.6.freq, file = "freq.Init6.Rda")
+```
+
+```{r Init analysis - severity}
+set.seed(7777)
+norm.km.cluster.4.sev = kmeans(data.matrix(df.sev.norm), 4)
+norm.init.analysis.4.sev = cluster.mm.severity(df.sev$ClaimAmount, norm.km.cluster.4.sev$cluster)
+save(norm.init.analysis.4.sev, file = "sev.Init4.Rda")
+
+set.seed(7777)
+norm.km.cluster.6.sev = kmeans(data.matrix(df.sev.norm), 6)
+norm.init.analysis.6.sev = cluster.mm.severity(df.sev$ClaimAmount, norm.km.cluster.6.sev$cluster)
+save(norm.init.analysis.6.sev, file = "sev.Init6.Rda")
+
+set.seed(7777)
+norm.km.cluster.8.sev = kmeans(data.matrix(df.sev.norm), 8)
+norm.init.analysis.8.sev = cluster.mm.severity(df.sev$ClaimAmount, norm.km.cluster.8.sev$cluster)
+save(norm.init.analysis.8.sev, file = "sev.Init8.Rda")
+```
+
+
+
+
+# Model Fitting
+
+By default, the fitting function in the package imposes a penalty on the magnitude of parameters to avoid spurious models with extremely large or small parameter values.
+
+For the same reason, initialization with extremely large or small parameter values should be avoided as well.  
+
+Below are the codes for some of the fitted models.
+
+```{r Frequency model}
+model.list = NULL
+
+dim.m = 1
+n.covar = 30
+
+# zero-inflated Gamma Count for frequency, with 5 latent classes
+
+n.comp = 5
+
+model.name = "freq.ZIgammacount5"
+comp.dist = matrix( c("ZI-gammacount", "ZI-gammacount", "ZI-gammacount", "ZI-gammacount", "ZI-gammacount"),
+                    nrow = dim.m, byrow = TRUE)
+
+# Assuming no knowledge of covariate influence on response,
+# initialize only the intercept coefficient, where g is the reference group
+alpha.init = matrix(0, nrow = n.comp, ncol = n.covar)
+alpha.init[,1] = c(log(0.11), log(0.15), log(0.13), log(0.15), log(0.46)) - log(0.46)
+
+zero.init = matrix( c(0.96, 0.97, 0.96, 0.96, 0.96),
+                    nrow = dim.m, byrow = TRUE)
+
+params.init = list( list( c(1.094624, 22.877434), c(1.175911, 12.495032), c(1.104364, 20.169784), 
+                          c(1.128669, 16.464637), c(1.090487, 23.243859) ))
+
+hyper.alpha = 5
+
+hyper.params = list( list( c(5, 5, 5, 5),
+                           c(5, 5, 5, 5),
+                           c(5, 5, 5, 5),
+                           c(5, 5, 5, 5),
+                           c(5, 5, 5, 5)))
+
+model.list[[length(model.list)+1]] = list(model.name = model.name,
+                                          n.comp = n.comp, comp.dist = comp.dist,
+                                          alpha.init = alpha.init, zero.init = zero.init,
+                                          params.init = params.init,
+                                          hyper.alpha = hyper.alpha, hyper.params = hyper.params)
+```
+
+```{r Severity model}
+model.list = NULL
+
+dim.m = 1
+n.covar = 30
+
+# Lognormal for severity, with 6 latent classes
+
+n.comp = 6
+
+model.name = "sev.lnorm6"
+comp.dist = matrix( c("lnorm", "lnorm", "lnorm", "lnorm", "lnorm", "lnorm"),
+                    nrow = dim.m, byrow = TRUE)
+
+alpha.init = matrix(0, nrow = n.comp, ncol = n.covar)
+alpha.init[,1] = c(log(0.14), log(0.11), log(0.13), log(0.42), log(0.14), log(0.06)) - log(0.06)
+
+zero.init = matrix( c(0, 0, 0, 0, 0, 0),
+                    nrow = dim.m, byrow = TRUE)
+
+params.init = list( list( c(6.27, 1.59), c(5.28, 2.35), c(6.40, 1.47),
+                          c(5.57, 2.08), c(6.44, 1.40), c(6.76, 1.09) ))
+
+hyper.alpha = 5
+
+hyper.params = list( list( c(5, 5, 5, 5, 5),
+                           c(5, 5, 5, 5, 5),
+                           c(5, 5, 5, 5, 5),
+                           c(5, 5, 5, 5, 5),
+                           c(5, 5, 5, 5, 5),
+                           c(5, 5, 5, 5, 5)))
+
+model.list[[length(model.list)+1]] = list(model.name = model.name,
+                                          n.comp = n.comp, comp.dist = comp.dist,
+                                          alpha.init = alpha.init, zero.init = zero.init,
+                                          params.init = params.init,
+                                          hyper.alpha = hyper.alpha, hyper.params = hyper.params)
+
+# Gamma for severity, with 6 latent classes
+
+n.comp = 6
+
+model.name = "sev.gamma6"
+comp.dist = matrix( c("gamma", "gamma", "gamma", "gamma", "gamma", "gamma"),
+                    nrow = dim.m, byrow = TRUE)
+
+alpha.init = matrix(0, nrow = n.comp, ncol = n.covar)
+alpha.init[,1] = c(log(0.14), log(0.11), log(0.13), log(0.42), log(0.14), log(0.06)) - log(0.06)
+
+zero.init = matrix( c(0, 0, 0, 0, 0, 0),
+                    nrow = dim.m, byrow = TRUE)
+
+params.init = list( list( c(8.81e-02, 2.12e+04), c(3.98e-03, 7.83e+05), 
+                          c(1.30e-01, 1.36e+04), c(1.32e-02, 1.75e+05), 
+                          c(1.63e-01, 1.02e+04), c(0.43, 3633.99) ))
+
+hyper.alpha = 5
+
+hyper.params = list( list( c(5, 5, 5, 5, 5),
+                           c(5, 5, 5, 5, 5),
+                           c(5, 5, 5, 5, 5),
+                           c(5, 5, 5, 5, 5),
+                           c(5, 5, 5, 5, 5),
+                           c(5, 5, 5, 5, 5)))
+
+model.list[[length(model.list)+1]] = list(model.name = model.name,
+                                          n.comp = n.comp, comp.dist = comp.dist,
+                                          alpha.init = alpha.init, zero.init = zero.init,
+                                          params.init = params.init,
+                                          hyper.alpha = hyper.alpha, hyper.params = hyper.params)
+```
+
+```{r Aggregate Model}
+model.list = NULL
+
+dim.m = 1
+n.covar = 30
+
+# zero-inflated Lognormal for aggregate claim amounts, wih 4 latent classes
+
+n.comp = 4
+
+model.name = "llll"
+comp.dist = matrix( c("ZI-lnorm", "ZI-lnorm", "ZI-lnorm", "ZI-lnorm"),
+                    nrow = dim.m, byrow = TRUE)
+
+alpha.init = matrix(0, nrow = n.comp, ncol = n.covar)
+alpha.init[,1] = c(log(0.12), log(0.18), log(0.49), log(0.21)) - log(0.21)
+
+zero.init = matrix( c(0.96, 0.97, 0.96, 0.96),
+                    nrow = dim.m, byrow = TRUE)
+
+params.init = list( list( c(5.27, 2.34), c(6.50, 1.45), c(5.66, 2.05), c(6.33, 1.52) ))
+
+hyper.alpha = 5
+
+hyper.params = list( list( c(5, 5, 5),
+                           c(5, 5, 5),
+                           c(5, 5, 5),
+                           c(5, 5, 5) ))
+
+model.list[[length(model.list)+1]] = list(model.name = model.name,
+                                          n.comp = n.comp, comp.dist = comp.dist,
+                                          alpha.init = alpha.init, zero.init = zero.init,
+                                          params.init = params.init,
+                                          hyper.alpha = hyper.alpha, hyper.params = hyper.params)
+```
+
+```{r Function: do_fitting}
+do_fitting = function(Y, X, b, model){
+
+  # Output file names: may be modified
+
+  model.name = toString(paste(model$model.name, sep=""))
+  rda.name = toString(paste(model.name, ".Rda", sep=""))
+  output.name = toString(paste(model.name, ".txt", sep=""))
+
+  # Open new file to save intermediate update of parameter values
+  sink(file = output.name, append = FALSE, type = c("output", "message"), split = FALSE)
+
+  # Call fitting function
+  tryCatch({model.fit = LRMoE::LRMoE.fit(Y = Y, X = X, n.comp = model$n.comp,
+                                         comp.dist = model$comp.dist,
+                                         alpha.init = model$alpha.init,
+                                         zero.init = model$zero.init,
+                                         params.init = model$params.init,
+                                         penalty = TRUE,
+                                         hyper.alpha = model$hyper.alpha,
+                                         hyper.params = model$hyper.params,
+                                         eps = 0.05, ecm.iter.max = 500,
+                                         print = TRUE)
+  save(model.fit, file = rda.name)
+  },
+  error=function(e){"Error!"; print("Error!")}
+  )
+
+  # Save intermediate update of parameter values
+  sink()
+
+  # Optional: use mailR to get running status. Code is omitted.
+
+}
+```
+
+```{r Model fitting process}
+# Specify how many models to fit in parallel
+ncore = 1
+n.run = length(model.list)
+
+# Make computing clusters: standard procedure
+cl = makePSOCKcluster(ncore)
+registerDoParallel(cl)
+
+# Call fitting functions in parallel
+# Fit frequency model
+ecm.table = foreach(b=1:n.run) %dopar% {do_fitting(Y.freq, X, b, model.list[[b]])}
+# Fit severity model
+ecm.table = foreach(b=1:n.run) %dopar% {do_fitting(Y.sev, X.sev, b, model.list[[b]])}
+# Fit aggregate model
+ecm.table = foreach(b=1:n.run) %dopar% {do_fitting(Y, X, b, model.list[[b]])}
+
+# Stop computing clusters: standard procedure
+stopCluster(cl)
+```
+
+
+## Chi-square
+
+```{r Parameters for chi-square}
+# calculate chi-square for a sample model llblll
+load("1_llblll.Rda")
+
+model.fit$params.fit
+
+model.fit$zero.fit
+
+model.fit$AIC
+model.fit$BIC
+model.fit$ll
+
+meanlog_list = c(7.09655741886, 7.4533088886, NA, 7.05490876158, 6.229620024, 6.38022614790)
+sdlog_list = c(0.03757386651, 0.5966779518, NA, 0.04118970572, 1.572756443, 0.06227624722)
+zero_list = c(0.9476059027, 0.9192492805, 0.9978837217, 0.9208827225, 0.9580900511, 0.9920487088)
+
+prob = predict.class.prob(X, model.fit$alpha.fit)
+
+pmf = plnorm(pt, meanlog = meanlog_list, sdlog = sdlog_list)
+pmf[3] = actuar::pburr(pt, shape1 = 1.411449971, shape2 = 1.000018992, scale = 24072.989814429)
+# pmf = pgamma(pt, shape = shape_list, scale = scale_list)
+# pdf = dgammacount.new(rep(pt, g), m_list, s_list)
+
+combined = zero_list + (1-zero_list)*pmf
+
+store = rowSums( sweep(prob, MARGIN = 2 , STATS = combined, FUN = "*", check.margin = TRUE))
+
+sum(store)
+```
+
+This concludes the fitting procedure of LRMoE.
+
