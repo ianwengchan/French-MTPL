@@ -1,0 +1,48 @@
+---
+title: "Simulated"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load simulated aggregated loss
+
+nsim = 5000
+ngroup = 100
+
+SimAggre = rep(NA, nsim)
+
+# Each simtable_j contains 50 scenarios
+for(j in 1:ngroup){
+
+  filename = toString(paste("simtable_", j, ".Rda", sep = ""))
+  load(filename)
+  SimAggre[c((50*(j-1)):(50*(j-1)+49))+1] = apply(sim.table, 1, FUN = sum)
+  rm(sim.table)
+  
+}
+
+# Summary of simulated aggregate loss
+summary(SimAggre)
+```
+
+```{r}
+load("SimAggre.Rda")
+```
+
+```{r}
+png(filename = "llblll_SimAggre.png", width=600, height=400)
+hist(SimAggre, breaks = 5000, xlim = c(min(SimAggre), 2*min(SimAggre)), probability = T, xlab = "Total Aggregate Claim Amount", main = "Empirical Distribution of Total Aggregate Loss")
+abline(v=34465077, col="red")
+abline(v=mean(SimAggre), col="blue")
+abline(v=median(SimAggre), col="green")
+legend("topright", legend=c("mean", "median", "observed"),
+       col=c("blue", "green", "red"), lty=1:1, cex=0.8)
+dev.off()
+```
+
+
+

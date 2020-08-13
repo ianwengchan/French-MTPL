@@ -1,0 +1,382 @@
+---
+title: "GLM and GAM Aggregate Simulation"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# GLM packages
+library(glmmTMB)
+library(boot)
+library(tweedie)
+
+# GAM packages
+library(mgcv)
+library(gamlss)
+library(boot)
+library(VGAM)
+
+# French Motor Third-Party Liability datasets
+library(CASdatasets)
+data(freMTPLfreq, freMTPLsev)
+```
+
+# Introduction/Recap
+
+We work with the French Motor Third-Party Liability datasets "freMTPLfreq" and "freMTPLsev".
+
+"freMTPLfreq" contains 10 columns:
+1. PolicyID: The unique identifier policy ID (used to link with the claims dataset).
+2. ClaimNb: Number of claims during the exposure period.
+3. Exposure: The period of exposure for a policy, in years.
+4. Power: The power of the car (ordered categorical).
+5. CarAge: The vehicle age, in years.
+6. DriverAge The driver age, in years.
+7. Brand: The car brand, divided into 7 groups.
+8. Gas: The car gas, Diesel or regular.
+9. Region: The policy region in France (based on the 1970-2015 classiﬁcation).
+10. Density: The density of inhabitants (number of inhabitants per km2) in the city the policyholder lives in.
+
+"freMTPLsev" contains 2 columns:
+1. PolicyID
+2. ClaimAmount: The cost of the claim.
+
+For simplicity, we neglect information on "Exposure" and "Density".  The removal of the former sets the exposure to a default of 1.  Justifications:
+1. Since majority of the policies has exposure period within a year with 1 being the mode, we expect the effect of such removal to be moderate.
+2. We will neglect both information throughout the whole project, putting all models on a level playing field.
+
+We will also give a few definitions before-hand.
+1. Claim: the request made by a policyholder to the insurer to compensate for a loss covered by the insurance.
+2. Claim amount: the amount of money that the insurer must pay.
+3. Claim frequency: the number of claims per policy.
+4. Claim severity: the size/amount per claim.
+
+
+
+
+# Task Description
+
+This session of the project looks at simulations using the Generalized Linear Models (GLMs) and Generalized Additive Models (GAMs).  Through repeated simulations using fitted GLMs and GAMs, empirical distribution of total claim (counts or amounts, or aggregate loss) for the whole portfolio/population can be obtained.
+
+## Frequency
+
+```{r Frequency dataframe}
+df.freq = freMTPLfreq[,-which(names(freMTPLfreq) %in% c("Exposure", "Density"))]
+
+# hist(df.freq$ClaimNb)
+# summary(df.freq$ClaimNb)
+```
+
+```{r Recall frequency models}
+# freq.glm1 = glmmTMB(ClaimNb ~ CarAge + DriverAge + Power + Brand + Gas + Region, 
+#                     data = df.freq, family = poisson())
+# summary(freq.glm1)
+# save(freq.glm1, file = "freq.glm1.Rda")
+
+
+# freq.glm2 = glmmTMB(ClaimNb ~ CarAge + DriverAge + Power + Brand + Gas + Region, 
+#                     data = df.freq, family = nbinom2())
+# summary(freq.glm2)
+# save(freq.glm2, file = "freq.glm2.Rda")
+
+
+# freq.gam1 = mgcv::gam(ClaimNb ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region,
+#                       data = df.freq, family = poisson())
+# summary(freq.gam1)
+# save(freq.gam1, file = "freq.gam1.Rda")
+
+
+# freq.gam2 = mgcv::gam(ClaimNb ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region, 
+#                       data = df.freq, family = nb())
+# summary(freq.gam2)
+# save(freq.gam2, file = "freq.gam2.Rda")
+
+
+# freq.ziglm1 = glmmTMB(ClaimNb ~ CarAge + DriverAge + Power + Brand + Gas + Region, 
+#                       ziformula = ~., data = df.freq, family = poisson())
+# summary(freq.ziglm1)
+# save(freq.ziglm1, file = "freq.ziglm1.Rda")
+
+
+# freq.ziglm2 = glmmTMB(ClaimNb ~ CarAge + DriverAge + Power + Brand + Gas + Region, 
+#                       ziformula = ~., data = df.freq, family = nbinom2())
+# summary(freq.ziglm2)
+# save(freq.ziglm2, file = "freq.ziglm2.Rda")
+
+
+# freq.zigam1 = mgcv::gam(list(ClaimNb ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region,
+#                              ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region),
+#                         data = df.freq, family = ziplss())
+# summary(freq.zigam1)
+# save(freq.zigam1, file = "freq.zigam1.Rda")
+
+
+# # Tried but did not converge
+# freq.zigam2 = gamlss(ClaimNb ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region,
+#                      sigma.formula = cs(CarAge) + cs(DriverAge)) + Power + Brand + Gas + Region,
+#                      nu.formula = ~1, data = df.freq, family = ZINBI())
+```
+
+## Frequency Chi-square
+
+```{r parameters for chi-square}
+mu.freq.glm1 = predict(freq.glm1, df.freq, type="response")
+
+mu.freq.glm2 = predict(freq.glm2, df.freq, type="response")
+disp.freq.glm2 = predict(freq.glm2, df.freq, type="disp")
+
+# probability of zero
+prob.freq.ziglm1 = predict(freq.ziglm1, df.freq, type="zprob")
+mu.freq.ziglm1 = predict(freq.ziglm1, df.freq, type="conditional")
+
+# probability of zero
+prob.freq.ziglm2 = predict(freq.ziglm2, df.freq, type="zprob")
+mu.freq.ziglm2 = predict(freq.ziglm2, df.freq, type="conditional")
+disp.freq.ziglm2 = predict(freq.ziglm2, df.freq, type="disp")
+
+
+mu.freq.gam1 = predict(freq.gam1, df.freq, type="response")
+
+mu.freq.gam2 = predict(freq.gam2, df.freq, type="response")
+disp.freq.gam2 = freq.gam2$family$getTheta(TRUE)
+
+mu.freq.zigam1 = exp(predict(freq.zigam1, df.freq, type="link")[,1])
+# probability of existence
+prob.freq.zigam1 = predict(freq.zigam1, df.freq, type="response")/mu.freq.zigam1
+
+# NA for zi-NegBin GAM
+```
+
+
+## Severity Modelling
+
+```{r Severity dataframe}
+# Match two datasets by PolicyID.
+df.sev = merge(freMTPLsev, freMTPLfreq, by = "PolicyID", all = FALSE)
+df.sev = df.sev[,-which(names(df.sev) %in% c("Exposure", "Density"))]
+
+# hist(subset(df.sev, df.sev$ClaimAmount <= 20000)$ClaimAmount, breaks=100, main="Histogram of ClaimAmount (subset)", xlab="ClaimAmount less than 20000")
+# summary(df.sev$ClaimAmount)
+```
+
+```{r Recall severity models}
+# sev.glm1 = glmmTMB(ClaimAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region,
+#                    data = df.sev, family = Gamma(link="log"))
+# summary(sev.glm1)
+# save(sev.glm1, file = "sev.glm1.Rda")
+
+# # Alternative for Gamma GLM, checked OK
+# test.glm1 = gamlss(ClaimAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region, 
+#                    data = df.sev, family = GA())
+# summary(test.glm1)
+
+
+# # OK to use gamlss, checked using Gamma GLM
+# sev.glm2 = gamlss(ClaimAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region, 
+#                   data = df.sev, family = LOGNO())
+# summary(sev.glm2)
+# save(sev.glm2, file = "sev.glm2.Rda")
+
+
+# sev.gam1 = gamlss(ClaimAmount ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region, 
+#                   data = df.sev, family = GA())
+# summary(sev.gam1)
+# save(sev.gam1, file = "sev.gam1.Rda")
+
+# # Equivalent to the following:
+# test1 = mgcv::gam(ClaimAmount ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region, 
+#                   data = df.sev, family = Gamma(link="log"))
+# summary(test1)
+# test1.mu = predict(test1, df.sev, type="response")
+
+
+# sev.gam2 = gamlss(ClaimAmount ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region, 
+#                   data = df.sev, family = LOGNO())
+# summary(sev.gam2)
+# save(sev.gam2, file = "sev.gam2.Rda")
+```
+
+## Severity Chi-square
+
+```{r parameters for chi-square}
+mu.sev.glm1 = predict(sev.glm1, df.sev, type="response")
+shape.sev.glm1 = (1/predict(sev.glm1, df.sev, type="disp"))^2
+# sum(pgamma(2036833, shape=shape.sev.glm1, scale=mu.sev.glm1/shape.sev.glm1))
+
+mu.sev.glm2 = predictAll(sev.glm2, newdata = df.sev, type="response")[["mu"]]
+sigma.sev.glm2 = predictAll(sev.glm2, newdata = df.sev, type="response")[["sigma"]]
+# sum(pLOGNO(2036833, mu=mu.sev.glm2, sigma=sigma.sev.glm2))
+
+
+mu.sev.gam1 = predictAll(sev.gam1, newdata = df.sev, type="response")[["mu"]]
+sigma.sev.gam1 = predictAll(sev.gam1, newdata = df.sev, type="response")[["sigma"]]
+# sum(pGA(2036833, mu=mu.sev.gam1, sigma=sigma.sev.gam1))
+
+mu.sev.gam2 = predictAll(sev.gam2, newdata = df.sev, type="response")[["mu"]]
+sigma.sev.gam2 = predictAll(sev.gam2, newdata = df.sev, type="response")[["sigma"]]
+# sum(pLOGNO(2036833, mu=mu.sev.gam2, sigma=sigma.sev.gam2))
+```
+
+
+## Total Claim Amount Modelling
+
+```{r Tweedie}
+png(file="TweedieExample.png", width=600, height=400)
+set.seed(777)
+store = rtweedie(10000, mu=500, phi=100, power=1.2)
+hist(store, breaks=50, xlab="amount", main="Example of Tweedie Distribution (1<p<2)")
+dev.off()
+```
+
+```{r Aggregate dataframe}
+# Aggregate claim amounts
+sev.aggre = aggregate(freMTPLsev$ClaimAmount, by = list(PolicyID = freMTPLsev$PolicyID), FUN = "sum")
+colnames(sev.aggre)[2] = "AggreAmount"
+
+# Match two datasets by PolicyID. NA values correspond to no claims.
+df.all = merge(freMTPLfreq, sev.aggre, by = "PolicyID", all = TRUE)
+df.all$AggreAmount[is.na(df.all$AggreAmount)] = 0
+
+# Drop covariates "Exposure" and "Density".
+df.all = df.all[,-which(names(df.all) %in% c("Exposure", "Density"))]
+
+# hist(df.all$ClaimAmount)
+# hist(subset(df.all, df.all$ClaimAmount <= 5000)$ClaimAmount, breaks=100, main="Histogram of ClaimAmount (subset)", xlab="ClaimAmount less than 20000")
+# summary(df.all$ClaimAmount)
+```
+
+```{r Recall aggregate models}
+# total.glm1 = glmmTMB(AggreAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region, data = df.all, family=tweedie())
+# summary(total.glm1)
+# save(total.glm1, file = "total.glm1.Rda")
+
+
+# total.glm2 = glmmTMB(AggreAmount ~ CarAge + DriverAge + Power + Brand + Gas + Region, ziformula = ~., data = df.all, family=ziGamma(link="log"))
+# summary(total.glm2)
+# save(total.glm2, file = "total.glm2.Rda")
+
+
+# total.gam1 = mgcv::gam(AggreAmount ~ s(CarAge, bs="cr") + s(DriverAge, bs="cr") + Power + Brand + Gas + Region, data = df.all, family=tw())
+# summary(total.gam1)
+# save(total.gam1, file = "total.gam1.Rda")
+
+
+# total.gam2 = gamlss(AggreAmount ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region,
+#                     nu.formula = ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region,
+#                     data = df.all, family = ZAGA())
+# summary(total.gam2)
+# save(total.gam2, file = "total.gam2.Rda")
+```
+
+## Aggregate Chi-square
+
+```{r parameters for chi-square}
+mu.total.glm1 = predict(total.glm1, df.all, type="response")
+phi.total.glm1 = sigma(total.glm1)
+power.total.glm1 = glmmTMB:::.tweedie_power(total.glm1)
+# sum(ptweedie(rep(pt, 413169), mu = mu.total.glm1, phi = phi.total.glm1, power = power.total.glm1))
+
+# probability of zero
+prob.total.glm2 = predict(total.glm2, df.all, type="zprob")
+mu.total.glm2 = exp(predict(total.glm2, df.all, type="link"))
+shape.total.glm2 = (1/predict(total.glm2, df.all, type="disp"))^2
+# sum(prob.total.glm2 + 
+#       (1-prob.total.glm2)*pgamma(pt, shape = shape.total.glm2, scale = mu.total.glm2/shape.total.glm2))
+
+
+mu.total.gam1 = predict(total.gam1, df.all, type="response")
+power.total.gam1 = total.gam1$family$getTheta(TRUE)
+phi.total.gam1 = summary(total.gam1)$dispersion
+# sum(ptweedie(rep(pt, 413169), mu = mu.total.gam1, power = power.total.gam1, phi = phi.total.gam1))
+
+mu.total.gam2 = predictAll(total.gam2, df.all, type="response")[["mu"]]
+sigma.total.gam2 = predictAll(total.gam2, df.all, type="response")[["sigma"]]
+nu.total.gam2 = predictAll(total.gam2, df.all, type="response")[["nu"]]
+# sum(pZAGA(rep(40000,413169), mu = mu.total.gam2, sigma = sigma.total.gam2, nu = nu.total.gam2))
+```
+
+
+# Simulation
+
+```{r Tweedie GAM model}
+load("total.gam1.Rda")
+
+mu.total.gam1 = predict(total.gam1, df.all, type="response")
+power.total.gam1 = total.gam1$family$getTheta(TRUE)
+phi.total.gam1 = summary(total.gam1)$dispersion
+```
+
+```{r ziGamma GAM model}
+load("total.gam2.Rda")
+mu.total.gam2 = predictAll(total.gam2, df.all, type="response")[["mu"]]
+sigma.total.gam2 = predictAll(total.gam2, df.all, type="response")[["sigma"]]
+nu.total.gam2 = predictAll(total.gam2, df.all, type="response")[["nu"]]
+```
+
+```{r Simulation}
+# Simulate one table which contains 50 scenarios
+
+for(j in 1:100){
+
+  filename = toString(paste("simtable_", j, ".Rda", sep=""))
+
+  sample.size = 50
+  
+  sim.table = matrix(NA, nrow = sample.size, ncol = 413169)
+  
+  for(i in 1:sample.size){
+    
+    sim.table[i, ] = rtweedie(413169, mu = mu.total.gam1, power = power.total.gam1, phi = phi.total.gam1)
+    
+    # sim.table[i, ] = rZAGA(413169, mu = mu.total.gam2, sigma = sigma.total.gam2, nu = nu.total.gam2)
+  }
+
+  save(sim.table, file = filename)
+}
+```
+
+```{r Load simulations}
+# Load simulated aggregated loss
+
+nsim = 5000
+ngroup = 100
+
+SimAggre = rep(NA, nsim)
+
+# Each simtable_j contains 50 scenarios
+for(j in 1:ngroup){
+
+  filename = toString(paste("simtable_", j, ".Rda", sep = ""))
+  load(filename)
+  SimAggre[c((50*(j-1)):(50*(j-1)+49))+1] = apply(sim.table, 1, FUN = sum)
+  rm(sim.table)
+
+}
+
+save(SimAggre, file="SimAggre.Rda")
+```
+
+```{r}
+load("SimAggre.Rda")
+
+summary(SimAggre)
+
+png(filename = "TweedieGAM_SimAggre.png", width=600, height=400)
+hist(SimAggre, breaks = 80, probability = T, xlab = "Total Aggregate Claim Amount", main = "Empirical Distribution of Total Aggregate Loss")
+abline(v=34465077, col="red")
+abline(v=median(SimAggre), col="green")
+abline(v=mean(SimAggre), col="blue")
+legend("topleft", legend=c("mean", "median", "observed"),
+       col=c("blue", "green", "red"), lty=1:1, cex=0.8)
+dev.off()
+
+# png(filename = "ziGammaGAM_SimAggre.png", width=600, height=400)
+# hist(SimAggre, breaks = 80, probability = T, xlab = "Total Aggregate Claim Amount", main = "Empirical Distribution of Total Aggregate Loss")
+# abline(v=34465077, col="red")
+# abline(v=median(SimAggre), col="green")
+# abline(v=mean(SimAggre), col="blue")
+# legend("topleft", legend=c("mean", "median", "observed"),
+#        col=c("blue", "green", "red"), lty=1:1, cex=0.8)
+# dev.off()
+```
