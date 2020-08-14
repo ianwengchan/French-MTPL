@@ -15,3 +15,5 @@
 * 1_lllll: zero-inflated Lognormal, with 5 latent classes
 * 1_llllll: zero-inflated Lognormal, with 6 latent classes
 * 1_llblll: zero-inflated Lognormal and Burr, with 6 latent classes in total
+** llblll_harder: llblll with harder penalties (penalty parameters 2.5).
+** llblll_relaxed: llblll with relaxed penalties (penalty parameters 10).
