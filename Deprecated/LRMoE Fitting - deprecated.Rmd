@@ -1,5 +1,6 @@
 ---
-title: "LRMoE Fitting"
+title: "LRMoE Fitting - deprecated"
+author: "Sophia Chan"
 output: html_document
 ---
 
