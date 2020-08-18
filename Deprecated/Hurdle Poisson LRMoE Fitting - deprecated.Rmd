@@ -1,5 +1,6 @@
 ---
 title: "Frequency Hurdle LRMoE Fitting"
+author: "Sophia Chan"
 output: html_document
 ---
 
