@@ -1,5 +1,6 @@
 ---
 title: "GLM and GAM Aggregate Simulation"
+author: "Sophia Chan"
 output: html_document
 ---
 
