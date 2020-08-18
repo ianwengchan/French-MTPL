@@ -1,5 +1,5 @@
 ---
-title: "Frequency Hurdle LRMoE Fitting"
+title: "Frequency Hurdle LRMoE Fitting - deprecated"
 author: "Sophia Chan"
 output: html_document
 ---
