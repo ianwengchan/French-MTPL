@@ -13,8 +13,6 @@ Used log as link function unless otherwise stated or pre-set by package.
 * freq.zigxm1: zero-inflated Poisson
 * freq.zigxm2: zero-inflated Negative Binomial
 
-*freq.zigam2 is unavailable as algorithm did not converge.*
-
 **For severity:**
 * sev.gxm1: Gamma
 * sev.gxm2: Lognormal
@@ -23,4 +21,4 @@ Used log as link function unless otherwise stated or pre-set by package.
 * total.gxm1: Tweedie, 1<p<2
 * total.gxm2: zero-inflated/adjusted Gamma
 
-*total.gam2 is too large, see [Google Drive](https://drive.google.com/drive/folders/1o6HOeQl3vFWpX-5GNH9tvolNIKLtdbEG?usp=sharing) instead.*
+*freq.zigam2 and total.gam2 are too large, see [Google Drive](https://drive.google.com/drive/folders/1o6HOeQl3vFWpX-5GNH9tvolNIKLtdbEG?usp=sharing) instead.*
