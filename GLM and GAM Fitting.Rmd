@@ -144,15 +144,11 @@ Negative Binomial performs better than Poisson.  However as we have observed tha
 # save(freq.zigam1, file = "freq.zigam1.Rda")
 ```
 
-Unable to fit a zero-inflated Negative Binomial GAM.
-1. mgcv: zero-inflated Negative Binomial GAM not supported.
-2. gamlss: algorithm does not converge.
-
 ```{r freq.zigam2 - NegBin}
-# # Tried but did not converge
+# con = gamlss.control(n.cyc=100)
 # freq.zigam2 = gamlss(ClaimNb ~ cs(CarAge) + cs(DriverAge) + Power + Brand + Gas + Region,
 #                      sigma.formula = cs(CarAge) + cs(DriverAge)) + Power + Brand + Gas + Region,
-#                      nu.formula = ~1, data = df.freq, family = ZINBI())
+#                      nu.formula = ~1, data = df.freq, family = ZINBI(), control = con)
 ```
 
 By introducing zero-inflation, the performance improves.  However, most of the covariates become insignificant.
