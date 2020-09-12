@@ -260,47 +260,47 @@ For severity, we fitted models with 4, 6 and 8 latent groups.  This is motivated
 
 ```{r Init analysis - total}
 set.seed(7777)
-init.analysis.3 = CMMSeverity(Y[,2], X, 3)
+init.analysis.3 = CMMSeverity(Y, X, 3)
 save(init.analysis.3, file = "Init3.Rda")
 
 set.seed(7777)
-init.analysis.4 = CMMSeverity(Y[,2], X, 4)
+init.analysis.4 = CMMSeverity(Y, X, 4)
 save(init.analysis.4, file = "Init4.Rda")
 
 set.seed(7777)
-init.analysis.5 = CMMSeverity(Y[,2], X, 5)
+init.analysis.5 = CMMSeverity(Y, X, 5)
 save(init.analysis.5, file = "Init5.Rda")
 
 set.seed(7777)
-init.analysis.6 = CMMSeverity(Y[,2], X, 6)
+init.analysis.6 = CMMSeverity(Y, X, 6)
 save(init.analysis.6, file = "Init6.Rda")
 ```
 
 ```{r Init analysis - frequency}
 set.seed(7777)
-init.analysis.4.freq = CMMFrequency(Y.freq[,2], X, 4)
+init.analysis.4.freq = CMMFrequency(Y.freq, X, 4)
 save(init.analysis.4.freq, file = "freq.Init4.Rda")
 
 set.seed(7777)
-init.analysis.5.freq = CMMFrequency(Y.freq[,2], X, 5)
+init.analysis.5.freq = CMMFrequency(Y.freq, X, 5)
 save(init.analysis.5.freq, file = "freq.Init5.Rda")
 
 set.seed(7777)
-init.analysis.6.freq = CMMFrequency(Y.freq[,2], X, 6)
+init.analysis.6.freq = CMMFrequency(Y.freq, X, 6)
 save(init.analysis.6.freq, file = "freq.Init6.Rda")
 ```
 
 ```{r Init analysis - severity}
 set.seed(7777)
-init.analysis.4.sev = CMMSeverity(Y.sev[,2], X.sev, 4)
+init.analysis.4.sev = CMMSeverity(Y.sev, X.sev, 4)
 save(init.analysis.4.sev, file = "sev.Init4.Rda")
 
 set.seed(7777)
-init.analysis.6.sev = CMMSeverity(Y.sev[,2], X.sev, 6)
+init.analysis.6.sev = CMMSeverity(Y.sev, X.sev, 6)
 save(init.analysis.6.sev, file = "sev.Init6.Rda")
 
 set.seed(7777)
-init.analysis.8.sev = CMMSeverity(Y.sev[,2], X.sev, 8)
+init.analysis.8.sev = CMMSeverity(Y.sev, X.sev, 8)
 save(init.analysis.8.sev, file = "sev.Init8.Rda")
 ```
 
