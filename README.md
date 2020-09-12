@@ -9,7 +9,6 @@ This project evaluates the performance of Generalized Linear Models (GLMs), Gene
 * Added fitted Hurdle Poisson LRMoEs.
 * Revised R Markdowns to accommodate the updated package. Previous versions are stored in folder "Deprecated" for reference.
 * Added simulations for aggregate claim amount, using "llblll" LRMoE, Tweedie GAM and zero-inflated Gamma GAM.
-
-## Updated Aug 19, 2020
-
 * Added fitted zero-inflated Negative Binomial GAM for frequency.
+
+## Updated
